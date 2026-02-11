@@ -30,33 +30,48 @@ export async function POST(req: NextRequest) {
             ? `
       You are a professional tour guide. Create a short, engaging audio guide script for "${spot.name}" in ${spot.location}.
       
+      Site Info:
+      - Description: ${spot.description_base}
+      
       User Preferences:
       - Language: Bilingual (Japanese and English)
       - Interests: ${interestStr}
       
-      REQUIREMENTS:
+      REQUIREMENTS FOR JAPANESE TEXT (FOR TTS):
+      - Ensure proper nouns (place names, people, etc.) and difficult kanji are written in a way that is easy for text-to-speech to pronounce correctly. Use Hiragana in brackets if needed, e.g., 浅草寺(せんそうじ).
+      - Use punctuation (、, 。) generously to ensure natural pacing and intonation in the audio.
+      
+      GENERAL REQUIREMENTS:
       - The script MUST be bilingual (Japanese and English).
       - For each section, provide the Japanese text first, followed by the English translation.
       - Focus deeply on the user's interests: ${interestStr}.
-      - Total length MUST be around 120-150 words total to ensure about 1 minute of speech.
+      - If the description is limited, use your knowledge about "${spot.name}" to provide rich details.
+      - Total length MUST be around 150-180 words total to ensure about 1 minute of speech.
       - Output ONLY the script text, no metadata or extra notes.
-      - Make it sound natural and welcoming.
-      - Start with a short intro, then the main highlights related to interests, and end with a nice closing.
+      - Start with a short intro, then the main highlights, and end with a nice closing.
     `
             : `
       You are a professional tour guide. Create a short, engaging audio guide script for "${spot.name}" in ${spot.location}.
+      
+      Site Info:
+      - Description: ${spot.description_base}
       
       User Preferences:
       - Language: ${languageName}
       - Interests: ${interestStr}
       
-      REQUIREMENTS:
+      REQUIREMENTS FOR JAPANESE (FOR TTS ACCURACY):
+      - THIS IS CRITICAL: For Japanese scripts, ensure proper nouns (place names, etc.) and difficult kanji are written in a way that is easy for text-to-speech to pronounce correctly. 
+      - Use Hiragana for difficult names or provide phonetic hints in brackets, e.g., 浅草寺(せんそうじ).
+      - Use punctuation (、, 。) frequently to create natural pauses during speech.
+      
+      GENERAL REQUIREMENTS:
       - The script MUST be entirely in ${languageName}.
       - Focus deeply on the user's interests: ${interestStr}.
-      - Total length MUST be around 100-120 words to ensure about 1 minute of speech.
+      - If the description is limited, use your knowledge about "${spot.name}" to provide rich details.
+      - Total length MUST be around 120-150 words to ensure about 1 minute of speech.
       - Output ONLY the script text, no metadata or extra notes.
-      - Make it sound natural, professional, and welcoming.
-      - Start with a short intro, then the main highlights related to interests, and end with a nice closing.
+      - Start with a short intro, then the main highlights, and end with a nice closing.
     `;
 
         const result = await model.generateContent(prompt);

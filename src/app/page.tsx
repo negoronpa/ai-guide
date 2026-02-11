@@ -1,3 +1,4 @@
+import SearchOverlay from "@/components/SearchOverlay";
 import Link from "next/link";
 import { mockSpots } from "@/data/mockSpots";
 import { MapPin, ArrowRight } from "lucide-react";
@@ -14,8 +15,12 @@ export default function Home() {
                 </p>
             </header>
 
+            <div className="mb-12">
+                <SearchOverlay />
+            </div>
+
             <div className="space-y-6">
-                <h2 className="text-xl font-bold text-neutral-800">Available Spots</h2>
+                <h2 className="text-xl font-bold text-neutral-800">Recommended Spots</h2>
                 {Object.values(mockSpots).map((spot) => (
                     <Link
                         key={spot.id}

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { mockSpots } from "@/data/mockSpots";
+import { mockSpots, Spot } from "@/data/mockSpots";
 import { Headphones, Globe, Heart, Play, Loader2 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -27,18 +27,43 @@ const INTERESTS = [
 export default function SpotPage() {
     const params = useParams();
     const spotId = params.id as string;
-    const spot = mockSpots[spotId];
 
+    const [spot, setSpot] = useState<Spot | null>(mockSpots[spotId] || null);
+    const [isLoadingSpot, setIsLoadingSpot] = useState(!mockSpots[spotId]);
     const [selectedLanguage, setSelectedLanguage] = useState("en");
     const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
+    useEffect(() => {
+        if (!spot && spotId) {
+            setIsLoadingSpot(true);
+            fetch(`/api/place-details?place_id=${spotId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.spot) {
+                        setSpot(data.spot);
+                    }
+                })
+                .catch(err => console.error("Error fetching spot details:", err))
+                .finally(() => setIsLoadingSpot(false));
+        }
+    }, [spotId, spot]);
+
+    if (isLoadingSpot) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen p-4">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-4" />
+                <p className="text-neutral-500">Loading spot details...</p>
+            </div>
+        );
+    }
+
     if (!spot) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen p-4">
                 <h1 className="text-2xl font-bold">Spot not found</h1>
-                <p className="text-gray-500">Please check the URL or scan the QR code again.</p>
+                <p className="text-gray-500">Please check the URL or try searching again.</p>
             </div>
         );
     }
