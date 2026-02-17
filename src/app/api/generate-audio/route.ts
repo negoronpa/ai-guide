@@ -24,7 +24,9 @@ export async function POST(req: NextRequest) {
 
         const interestStr = interests.length > 0 ? interests.join(", ") : "general information";
 
-        const languageName = language === "bilingual" ? "Bilingual (Japanese and English)" : (language === "ja" ? "Japanese" : "English");
+        const languageName = language === "bilingual"
+            ? "Bilingual (Japanese and English)"
+            : (language === "ja" ? "Japanese" : (language === "zh" ? "Chinese (Simplified)" : "English"));
 
         const prompt = language === "bilingual"
             ? `
@@ -60,16 +62,17 @@ export async function POST(req: NextRequest) {
       - Language: ${languageName}
       - Interests: ${interestStr}
       
-      REQUIREMENTS FOR JAPANESE (FOR TTS ACCURACY):
-      - THIS IS CRITICAL: For Japanese scripts, ensure proper nouns (place names, etc.) and difficult kanji are written in a way that is easy for text-to-speech to pronounce correctly. 
-      - Use Hiragana for difficult names or provide phonetic hints in brackets, e.g., 浅草寺(せんそうじ).
-      - Use punctuation (、, 。) frequently to create natural pauses during speech.
+      REQUIREMENTS FOR JAPANESE OR CHINESE (FOR TTS ACCURACY):
+      - THIS IS CRITICAL: For Japanese or Chinese scripts, ensure proper nouns (place names, etc.) and difficult characters are written in a way that is easy for text-to-speech to pronounce correctly. 
+      - For Japanese, use Hiragana for difficult names or provide phonetic hints in brackets, e.g., 浅草寺(せんそうじ).
+      - For Chinese, use standard Simplified characters and avoid rare or extremely obscure characters that might cause TTS issues.
+      - Use punctuation (、, 。, ，) frequently to create natural pauses during speech.
       
       GENERAL REQUIREMENTS:
       - The script MUST be entirely in ${languageName}.
       - Focus deeply on the user's interests: ${interestStr}.
       - If the description is limited, use your knowledge about "${spot.name}" to provide rich details.
-      - Total length MUST be around 120-150 words to ensure about 1 minute of speech.
+      - Total length MUST be around 120-150 words (or equivalent in character count for Chinese) to ensure about 1 minute of speech.
       - Output ONLY the script text, no metadata or extra notes.
       - Start with a short intro, then the main highlights, and end with a nice closing.
     `;

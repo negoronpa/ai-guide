@@ -14,6 +14,7 @@ function cn(...inputs: ClassValue[]) {
 const LANGUAGES = [
     { id: "en", label: "English" },
     { id: "ja", label: "日本語" },
+    { id: "zh", label: "中文" },
     { id: "bilingual", label: "JP & EN" },
 ];
 
