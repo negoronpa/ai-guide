@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
         const languageName = language === "bilingual"
             ? "Bilingual (Japanese and English)"
-            : (language === "ja" ? "Japanese" : (language === "zh" ? "Chinese (Simplified)" : "English"));
+            : (language === "ja" ? "Japanese" : (language === "zh" ? "Chinese (Simplified)" : (language === "ru" ? "Russian" : "English")));
 
         const prompt = language === "bilingual"
             ? `
@@ -62,11 +62,12 @@ export async function POST(req: NextRequest) {
       - Language: ${languageName}
       - Interests: ${interestStr}
       
-      REQUIREMENTS FOR JAPANESE OR CHINESE (FOR TTS ACCURACY):
-      - THIS IS CRITICAL: For Japanese or Chinese scripts, ensure proper nouns (place names, etc.) and difficult characters are written in a way that is easy for text-to-speech to pronounce correctly. 
+      REQUIREMENTS FOR JAPANESE, CHINESE, OR RUSSIAN (FOR TTS ACCURACY):
+      - THIS IS CRITICAL: For Japanese, Chinese, or Russian scripts, ensure proper nouns (place names, etc.) and difficult characters are written in a way that is easy for text-to-speech to pronounce correctly. 
       - For Japanese, use Hiragana for difficult names or provide phonetic hints in brackets, e.g., 浅草寺(せんそうじ).
       - For Chinese, use standard Simplified characters and avoid rare or extremely obscure characters that might cause TTS issues.
-      - Use punctuation (、, 。, ，) frequently to create natural pauses during speech.
+      - For Russian, ensure proper stress marks if needed for ambiguous words, although the system usually handles standard Russian well. Use common, clear language.
+      - Use punctuation (、, 。, ，, ., !) frequently to create natural pauses during speech.
       
       GENERAL REQUIREMENTS:
       - The script MUST be entirely in ${languageName}.
