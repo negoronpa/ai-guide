@@ -2,16 +2,26 @@ import SearchOverlay from "@/components/SearchOverlay";
 import UserProfileCard from "@/components/UserProfileCard";
 import Link from "next/link";
 import { mockSpots } from "@/data/mockSpots";
-import { MapPin, ArrowRight } from "lucide-react";
+import { MapPin, ArrowRight, BarChart3 } from "lucide-react";
 
 export default function Home() {
     return (
         <main className="min-h-screen p-6 max-w-2xl mx-auto">
-            <header className="py-12 text-center">
+            <div className="flex justify-end pt-2">
+                <Link
+                    href="/analytics"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-white rounded-full text-xs font-bold shadow-sm transition-all hover:scale-105"
+                >
+                    <BarChart3 className="w-3.5 h-3.5 text-blue-400" />
+                    POC 分析ダッシュボード
+                </Link>
+            </div>
+
+            <header className="py-8 text-center">
                 <h1 className="text-4xl font-extrabold text-neutral-900 tracking-tight">
                     Inbound <span className="text-blue-600">AI Guide</span>
                 </h1>
-                <p className="mt-4 text-neutral-500 font-medium">
+                <p className="mt-3 text-neutral-500 font-medium">
                     Personalized audio stories for your Japanese journey.
                 </p>
             </header>

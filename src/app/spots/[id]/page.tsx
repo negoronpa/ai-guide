@@ -20,7 +20,10 @@ import {
     ExternalLink,
     BookOpen,
     Zap,
-    AlertCircle
+    AlertCircle,
+    ThumbsUp,
+    ThumbsDown,
+    Check
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -97,6 +100,14 @@ function sanitizeTopicList(rawList: any[]): NextTopic[] {
     return unique.slice(0, 3);
 }
 
+function cleanClientScript(text: string): string {
+    let cleaned = text.trim();
+    cleaned = cleaned.replace(/^(?:\*\*|\#\#\#|\s)*(?:displayScript|spokenScript|script)(?:\*\*|\s)*:\s*["']?/i, "");
+    cleaned = cleaned.split(/(?:\n\s*(?:\*\*|\#\#\#|\s)*(?:spokenScript|nextTopics|sources)(?:\*\*|\s)*:)/i)[0];
+    cleaned = cleaned.replace(/^["']|["']$/g, "").trim();
+    return cleaned;
+}
+
 export default function SpotPage() {
     const params = useParams();
     const spotId = params.id as string;
@@ -119,11 +130,46 @@ export default function SpotPage() {
     const [generationError, setGenerationError] = useState<string | null>(null);
     const [lastFailedAction, setLastFailedAction] = useState<{ title: string; prompt: string; icon: string } | null>(null);
 
+    // Subjective Feedback States
+    const [chapterFeedbacks, setChapterFeedbacks] = useState<Record<string, "good" | "bad">>({});
+    const [overallFeedback, setOverallFeedback] = useState<"discovery" | "respect" | "needs_improvement" | null>(null);
+
     // Speculative Prefetch Cache & Controllers
     const [prefetchCache, setPrefetchCache] = useState<Record<string, PrefetchedTopicData>>({});
     const prefetchAbortControllers = useRef<AbortController[]>([]);
     const prefetchTimerRef = useRef<NodeJS.Timeout | null>(null);
     const timelineEndRef = useRef<HTMLDivElement>(null);
+    const sessionIdRef = useRef<string>(`session-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`);
+
+    const trackEvent = (eventType: string, chapterIndex: number, topicTitle?: string, isZeroLatency?: boolean, feedbackType?: string) => {
+        if (!spot) return;
+        fetch("/api/analytics", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                sessionId: sessionIdRef.current,
+                spotId: spot.id,
+                spotName: spot.name,
+                language: selectedLanguage,
+                eventType,
+                chapterIndex,
+                topicTitle,
+                isZeroLatency: Boolean(isZeroLatency),
+                estimatedCostJpy: isZeroLatency ? 1.10 : 0,
+                feedbackType,
+            }),
+        }).catch((e) => console.warn("Analytics beacon error:", e));
+    };
+
+    const handleChapterFeedback = (chapterId: string, chapterIndex: number, chapterTitle: string, type: "good" | "bad") => {
+        setChapterFeedbacks((prev) => ({ ...prev, [chapterId]: type }));
+        trackEvent("chapter_feedback", chapterIndex, chapterTitle, false, type);
+    };
+
+    const handleOverallFeedback = (type: "discovery" | "respect" | "needs_improvement") => {
+        setOverallFeedback(type);
+        trackEvent("overall_feedback", chapters.length, "スポット全体の学び", false, type);
+    };
 
     useEffect(() => {
         const savedProfile = localStorage.getItem("ai_audio_guide_user_profile");
@@ -213,6 +259,7 @@ export default function SpotPage() {
                                 scriptText = scriptHeader;
                             }
                         }
+                        scriptText = cleanClientScript(scriptText);
 
                         let parsedNextTopics: NextTopic[] = [];
                         if (topicsHeader) {
@@ -328,6 +375,9 @@ export default function SpotPage() {
                 setNextTopics(sanitizeTopicList(cachedItem.nextTopics));
             }
 
+            // Track zero-latency hit event
+            trackEvent("prefetch_hit", chapters.length + 1, topicTitle, true);
+
             setTimeout(() => {
                 timelineEndRef.current?.scrollIntoView({ behavior: "smooth" });
             }, 200);
@@ -385,6 +435,7 @@ export default function SpotPage() {
                     }
                 }
             }
+            scriptText = cleanClientScript(scriptText);
 
             if (topicsHeader) {
                 try {
@@ -426,6 +477,9 @@ export default function SpotPage() {
             setActiveChapterId(newChapter.id);
             setGenerationError(null);
             setLastFailedAction(null);
+
+            // Track standard chapter played event
+            trackEvent("chapter_played", chapters.length + 1, topicTitle, false);
 
             setTimeout(() => {
                 timelineEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -678,6 +732,37 @@ export default function SpotPage() {
                                                 </div>
                                             </div>
                                         )}
+                                        {/* Chapter Feedback Thumbs */}
+                                        <div className="mt-3 pt-2 flex items-center justify-between border-t border-neutral-200/50 pl-7">
+                                            <span className="text-[10px] text-neutral-400">この解説は役に立ちましたか？</span>
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    onClick={() => handleChapterFeedback(chapter.id, idx + 1, chapter.title, "good")}
+                                                    className={cn(
+                                                        "px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all",
+                                                        chapterFeedbacks[chapter.id] === "good"
+                                                            ? "bg-emerald-500 text-white shadow-2xs"
+                                                            : "bg-white text-neutral-500 hover:text-neutral-800 border border-neutral-200 hover:bg-neutral-50"
+                                                    )}
+                                                    title="役に立った"
+                                                >
+                                                    <ThumbsUp className="w-3 h-3" />
+                                                    {chapterFeedbacks[chapter.id] === "good" && "Good"}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleChapterFeedback(chapter.id, idx + 1, chapter.title, "bad")}
+                                                    className={cn(
+                                                        "px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all",
+                                                        chapterFeedbacks[chapter.id] === "bad"
+                                                            ? "bg-neutral-700 text-white shadow-2xs"
+                                                            : "bg-white text-neutral-500 hover:text-neutral-800 border border-neutral-200 hover:bg-neutral-50"
+                                                    )}
+                                                    title="いまいち"
+                                                >
+                                                    <ThumbsDown className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 );
                             })}
@@ -718,9 +803,9 @@ export default function SpotPage() {
                             </div>
                         )}
 
-                        {/* Next Topics / 3 Choices Section (Only shown when NO error) */}
+                        {/* Next Topics / 3 Choices Section (Directly below chapters for seamless flow) */}
                         {!generationError && nextTopics.length > 0 && !isGenerating && (
-                            <div className="pt-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <div className="pt-3 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 <div className="flex items-center gap-2 text-neutral-800">
                                     <Sparkles className="w-4 h-4 text-amber-500" />
                                     <h4 className="text-sm font-bold">
@@ -807,6 +892,50 @@ export default function SpotPage() {
                                 </button>
                             </form>
                         </div>
+
+                        {/* Overall Spot Learning Reflection Card (Placed at the bottom for natural wrap-up) */}
+                        {chapters.length >= 2 && !isGenerating && (
+                            <div className="pt-4 border-t border-neutral-100/80">
+                                <div className="p-4 bg-gradient-to-r from-amber-50/80 via-orange-50/50 to-amber-50/80 border border-amber-200/70 rounded-2xl shadow-2xs space-y-2.5 animate-in fade-in">
+                                    <div className="flex items-center gap-2">
+                                        <Sparkles className="w-4 h-4 text-amber-600" />
+                                        <h4 className="text-xs font-bold text-amber-950">
+                                            今日の音声ガイドで、新しい発見や学びは得られましたか？
+                                        </h4>
+                                    </div>
+                                    {overallFeedback ? (
+                                        <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 bg-emerald-100/70 p-2.5 rounded-xl border border-emerald-200 animate-in fade-in">
+                                            <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                                            フィードバックありがとうございます！より良いガイド作りに役立てます。
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                            <button
+                                                onClick={() => handleOverallFeedback("discovery")}
+                                                className="p-2.5 bg-white hover:bg-amber-100/60 border border-amber-200 text-amber-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:shadow-xs transition-all active:scale-98 text-left"
+                                            >
+                                                <span className="text-base">💡</span>
+                                                <span>新しい発見があった！</span>
+                                            </button>
+                                            <button
+                                                onClick={() => handleOverallFeedback("respect")}
+                                                className="p-2.5 bg-white hover:bg-orange-100/60 border border-orange-200 text-orange-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:shadow-xs transition-all active:scale-98 text-left"
+                                            >
+                                                <span className="text-base">✨</span>
+                                                <span>深い歴史に感動した！</span>
+                                            </button>
+                                            <button
+                                                onClick={() => handleOverallFeedback("needs_improvement")}
+                                                className="p-2.5 bg-white hover:bg-neutral-100 border border-neutral-200 text-neutral-600 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:shadow-xs transition-all active:scale-98 text-left"
+                                            >
+                                                <span className="text-base">🤔</span>
+                                                <span>ちょっと難しかった</span>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         <div ref={timelineEndRef} />
                     </div>

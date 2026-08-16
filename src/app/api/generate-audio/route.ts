@@ -200,23 +200,23 @@ async function handleGenerateAudio(
             spokenScript = jsonSpokenMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
         }
 
-        // 2. YAML / Key-Value Regex extraction (e.g. displayScript: ... \n spokenScript: ...)
+        // 2. YAML / Markdown / Key-Value Regex extraction (e.g. **displayScript**: ... \n **spokenScript**: ...)
         if (!displayScript) {
-            const yamlDisplayMatch = clean.match(/(?:^|\n)\s*displayScript\s*:\s*["']?([\s\S]*?)(?=(?:\n\s*spokenScript|\n\s*nextTopics|\n\s*sources|["']?\s*$))/i);
+            const yamlDisplayMatch = clean.match(/(?:^|\n)\s*(?:\*\*|\#\#\#|\s)*displayScript(?:\*\*|\s)*:\s*["']?([\s\S]*?)(?=(?:\n\s*(?:\*\*|\#\#\#|\s)*(?:spokenScript|nextTopics|sources)|["']?\s*$))/i);
             if (yamlDisplayMatch) {
                 displayScript = yamlDisplayMatch[1].trim().replace(/^["']|["']$/g, "");
             }
         }
 
         if (!spokenScript) {
-            const yamlSpokenMatch = clean.match(/(?:^|\n)\s*spokenScript\s*:\s*["']?([\s\S]*?)(?=(?:\n\s*nextTopics|\n\s*sources|["']?\s*$))/i);
+            const yamlSpokenMatch = clean.match(/(?:^|\n)\s*(?:\*\*|\#\#\#|\s)*spokenScript(?:\*\*|\s)*:\s*["']?([\s\S]*?)(?=(?:\n\s*(?:\*\*|\#\#\#|\s)*(?:nextTopics|sources)|["']?\s*$))/i);
             if (yamlSpokenMatch) {
                 spokenScript = yamlSpokenMatch[1].trim().replace(/^["']|["']$/g, "");
             }
         }
 
         // 3. Omni-Parser: If raw text without keys, use directly
-        if (!displayScript && clean.length > 20 && !clean.startsWith("{") && !clean.includes("displayScript:")) {
+        if (!displayScript && clean.length > 20 && !clean.startsWith("{") && !clean.includes("displayScript")) {
             const strippedText = clean.replace(/^#+\s*.*$/gm, "").trim();
             if (strippedText.length > 20) {
                 displayScript = strippedText;
@@ -228,14 +228,14 @@ async function handleGenerateAudio(
             spokenScript = displayScript;
         }
 
-        // Fallback nextTopics (JSON style)
+        // Fallback nextTopics (JSON objects inside text or bullets)
         const topicMatches = clean.matchAll(/\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"icon"\s*:\s*"([^"]+)"\s*,\s*"title"\s*:\s*"([^"]+)"\s*,\s*"prompt"\s*:\s*"([^"]+)"\s*\}/g);
         for (const m of Array.from(topicMatches)) {
             nextTopics.push({ id: m[1], icon: m[2], title: m[3], prompt: m[4] });
         }
 
         // Fallback nextTopics (YAML style: - id: "1" \n icon: "📸" ...)
-        if (nextTopics.length === 0 && clean.includes("nextTopics:")) {
+        if (nextTopics.length === 0 && clean.includes("nextTopics")) {
             const yamlTopicBlocks = clean.split(/-\s*id\s*:/i).slice(1);
             for (const block of yamlTopicBlocks) {
                 const titleM = block.match(/title\s*:\s*["']?([^"\n\r]+)["']?/i);
@@ -259,14 +259,14 @@ async function handleGenerateAudio(
         }
     }
 
-    // Sanitize displayScript & spokenScript: strip any leaked keys like "displayScript:", "spokenScript:", "nextTopics:"
+    // Bulletproof Sanitize: strip markdown bold keys like **displayScript:**, **spokenScript:**, **nextTopics:**
     function cleanScriptText(text: string): string {
         let cleaned = text.trim();
-        // Remove leading displayScript: or spokenScript:
-        cleaned = cleaned.replace(/^(?:displayScript|spokenScript|script)\s*:\s*["']?/i, "");
-        // If nextTopics or spokenScript leaked into the text, cut off before them
-        cleaned = cleaned.split(/(?:\n\s*spokenScript:|\n\s*nextTopics:|\n\s*sources:)/i)[0];
-        // Clean leading/trailing quotes
+        // Remove leading displayScript / spokenScript with any markdown formatting
+        cleaned = cleaned.replace(/^(?:\*\*|\#\#\#|\s)*(?:displayScript|spokenScript|script)(?:\*\*|\s)*:\s*["']?/i, "");
+        // If spokenScript, nextTopics, or sources appeared, strictly cut off before them
+        cleaned = cleaned.split(/(?:\n\s*(?:\*\*|\#\#\#|\s)*(?:spokenScript|nextTopics|sources)(?:\*\*|\s)*:)/i)[0];
+        // Clean leading/trailing quotes and markdown bold
         cleaned = cleaned.replace(/^["']|["']$/g, "").trim();
         return cleaned;
     }
