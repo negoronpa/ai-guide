@@ -56,6 +56,13 @@ async function handleGenerateAudio(
       ${isDeepDive ? `- Selected Topic to Explain: "${currentTopic.trim()}"` : "- Topic: Introductory Overview"}
       
       ========================================================================
+      STEP 0: FACTUAL INTEGRITY & ANTI-HALLUCINATION GUARDRAILS (CRITICAL)
+      ========================================================================
+      - Ground your explanation strictly in verifiable historical and cultural facts about "${spot.name}".
+      - STRICT BAN ON INVENTING SPECIFIC NUMBERS: Never invent specific tournament edition numbers (e.g. "第62回大会"), match scores, winning teams, exact dates, or arbitrary statistics unless 100% verified.
+      - Focus on verified historical milestones, human spirit, architectural ingenuity, and timeless cultural significance rather than guessing unverified numerical details.
+      
+      ========================================================================
       STEP 1: DYNAMIC VISITOR COGNITIVE INFERENCE (Adaptive Heritage Guide Model)
       ========================================================================
       Analyze the visitor profile and chosen topic along 3 dimensions:
@@ -130,9 +137,10 @@ async function handleGenerateAudio(
             thinkingConfig: {
                 thinkingBudget: 0,
             },
-            temperature: 0.7,
+            temperature: 0.3,
             maxOutputTokens: 1000,
             responseMimeType: "application/json",
+            tools: [{ googleSearch: {} }],
         },
     });
 
@@ -148,6 +156,15 @@ async function handleGenerateAudio(
     let spokenScript = "";
     let nextTopics: any[] = [];
     let sources: any[] = [];
+
+    // Extract real Grounding Web Sources from Google Search metadata if available
+    const groundingChunks = (result as any).candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const webSources: Array<{ title: string; url: string }> = [];
+    for (const chunk of groundingChunks) {
+        if (chunk.web?.uri && chunk.web?.title) {
+            webSources.push({ title: chunk.web.title, url: chunk.web.uri });
+        }
+    }
 
     try {
         const parsed = JSON.parse(clean);
@@ -186,6 +203,20 @@ async function handleGenerateAudio(
             sources.push({ title: m[1], url: m[2] });
         }
     }
+
+    // Merge Google Grounding web sources (real primary references) with parsed sources
+    if (webSources.length > 0) {
+        const existingUrls = new Set(sources.map((s) => s.url));
+        for (const ws of webSources) {
+            if (!existingUrls.has(ws.url)) {
+                sources.unshift(ws);
+                existingUrls.add(ws.url);
+            }
+        }
+    }
+
+    // Cap sources to top 3
+    sources = sources.slice(0, 3);
 
     // Clean any remaining brackets if present
     if (displayScript.startsWith("{") && displayScript.includes('"')) {
