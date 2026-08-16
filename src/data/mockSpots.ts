@@ -21,4 +21,11 @@ export const mockSpots: Record<string, Spot> = {
         description_base: "The Golden Pavilion is a Zen temple in northern Kyoto whose top two floors are completely covered in gold leaf. It was the retirement villa of the shogun Ashikaga Yoshimitsu.",
         imageUrl: "/images/kinkakuji.jpg",
     },
+    "kinkaku-temple": {
+        id: "kinkaku-ji",
+        name: "Kinkaku-ji (金閣寺)",
+        location: "Kyoto",
+        description_base: "The Golden Pavilion is a Zen temple in northern Kyoto whose top two floors are completely covered in gold leaf. It was the retirement villa of the shogun Ashikaga Yoshimitsu.",
+        imageUrl: "/images/kinkakuji.jpg",
+    },
 };

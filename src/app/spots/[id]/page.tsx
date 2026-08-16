@@ -19,7 +19,8 @@ import {
     Compass,
     ExternalLink,
     BookOpen,
-    Zap
+    Zap,
+    AlertCircle
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -115,6 +116,8 @@ export default function SpotPage() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [generatingMessage, setGeneratingMessage] = useState("AIが音声を高速生成中...");
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    const [generationError, setGenerationError] = useState<string | null>(null);
+    const [lastFailedAction, setLastFailedAction] = useState<{ title: string; prompt: string; icon: string } | null>(null);
 
     // Speculative Prefetch Cache & Controllers
     const [prefetchCache, setPrefetchCache] = useState<Record<string, PrefetchedTopicData>>({});
@@ -333,6 +336,7 @@ export default function SpotPage() {
 
         // Standard On-Demand Fetch (if not in prefetch cache or custom question)
         setIsGenerating(true);
+        setGenerationError(null);
         setGeneratingMessage(topicPrompt ? `「${topicTitle}」を深掘り生成中...` : "パーソナライズ音声を生成中...");
 
         try {
@@ -420,13 +424,16 @@ export default function SpotPage() {
 
             setChapters((prev) => [...prev, newChapter]);
             setActiveChapterId(newChapter.id);
+            setGenerationError(null);
+            setLastFailedAction(null);
 
             setTimeout(() => {
                 timelineEndRef.current?.scrollIntoView({ behavior: "smooth" });
             }, 300);
         } catch (error: any) {
             console.error(error);
-            alert(error.message || "Something went wrong during generation.");
+            setGenerationError(error.message || "ガイド原稿の生成に失敗しました。もう一度お試しください。");
+            setLastFailedAction({ title: topicTitle, prompt: topicPrompt, icon });
         } finally {
             setIsGenerating(false);
         }
@@ -676,8 +683,43 @@ export default function SpotPage() {
                             })}
                         </div>
 
-                        {/* Next Topics / 3 Choices Section */}
-                        {nextTopics.length > 0 && !isGenerating && (
+                        {/* Error & Retry Card (Approach ①: Hide broken choices and show clean retry action) */}
+                        {generationError && !isGenerating && (
+                            <div className="pt-2">
+                                <div className="p-4 bg-amber-50/90 border border-amber-200/90 rounded-2xl flex items-center justify-between shadow-xs animate-in fade-in slide-in-from-bottom-2">
+                                    <div className="flex items-center gap-3 mr-2 min-w-0">
+                                        <div className="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                                            <AlertCircle className="w-5 h-5 text-amber-600" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-xs font-bold text-amber-900 truncate">
+                                                {generationError}
+                                            </p>
+                                            <p className="text-[11px] text-amber-700 mt-0.5">
+                                                通信状態を確認して再試行してください
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            if (lastFailedAction) {
+                                                executeGenerate(lastFailedAction.title, lastFailedAction.prompt, lastFailedAction.icon);
+                                            } else {
+                                                executeGenerate("ハイライトガイド", "", "✨");
+                                            }
+                                        }}
+                                        disabled={isGenerating}
+                                        className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all flex-shrink-0"
+                                    >
+                                        <RotateCcw className="w-3.5 h-3.5" />
+                                        もう一度試す
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Next Topics / 3 Choices Section (Only shown when NO error) */}
+                        {!generationError && nextTopics.length > 0 && !isGenerating && (
                             <div className="pt-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 <div className="flex items-center gap-2 text-neutral-800">
                                     <Sparkles className="w-4 h-4 text-amber-500" />

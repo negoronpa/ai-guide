@@ -29,6 +29,9 @@ async function handleGenerateAudio(
         ? "Bilingual (Japanese and English)"
         : (language === "ja" ? "Japanese" : (language === "zh" ? "Chinese (Simplified)" : (language === "ru" ? "Russian" : "English")));
 
+    const isBilingual = language === "bilingual";
+    const isJapanese = language === "ja";
+
     const isDeepDive = Boolean(currentTopic.trim());
 
     const phaseGuidance = isDeepDive
@@ -38,8 +41,10 @@ async function handleGenerateAudio(
         : `* EXPLORATION PHASE: INTRODUCTORY HIGHLIGHT
           - Connect to [安心 / Comfort] (relatable, engaging entry point suited to the visitor) and [発見 / Discovery] (striking observable wonders of ${spot.name}).`;
 
-    const isBilingual = language === "bilingual";
-    const isJapanese = language === "ja";
+    const hasValidDesc = spot.description_base && !spot.description_base.includes("No description available");
+    const siteContext = hasValidDesc
+        ? `Core Description: ${spot.description_base}`
+        : `Note: Use Google Search to look up the exact history, highlights, and cultural importance of "${spot.name}" in ${spot.location}.`;
 
     const prompt = `
       You are an adaptive, world-class cultural heritage storyteller and audio tour guide for "${spot.name}" in ${spot.location}.
@@ -47,7 +52,7 @@ async function handleGenerateAudio(
       SITE HERITAGE DATA:
       - Name: ${spot.name}
       - Location: ${spot.location}
-      - Core Description: ${spot.description_base}
+      - ${siteContext}
       
       VISITOR PROFILE & INPUT:
       - TARGET LANGUAGE: ${languageName} (CRITICAL: All output scripts and choices MUST be in ${languageName}!)
@@ -117,8 +122,11 @@ async function handleGenerateAudio(
       SOURCES & REFERENCES:
       - Provide 1 to 3 reliable, real-world source URLs for grounding and deeper reading.
       
-      OUTPUT FORMAT:
-      You MUST return a JSON object with this exact schema:
+      OUTPUT FORMAT (CRITICAL):
+      You MUST return ONLY a valid, parseable RFC-8259 JSON object.
+      DO NOT output YAML, DO NOT output plain key-value text like "displayScript: ...", and DO NOT add explanations outside the JSON.
+      
+      Exact Schema:
       {
         "displayScript": "Complete, polished script in ${languageName}",
         "spokenScript": "Phonetically optimized text for TTS in ${languageName}",
@@ -175,28 +183,73 @@ async function handleGenerateAudio(
         nextTopics = Array.isArray(parsed.nextTopics) ? parsed.nextTopics : [];
         sources = Array.isArray(parsed.sources) ? parsed.sources : [];
     } catch (e) {
-        console.warn("Standard JSON parse failed, running fallback regex parser:", e);
-        // Regex extraction for displayScript
-        const displayMatch = clean.match(/"displayScript"\s*:\s*"((?:\\.|[^"\\])*)"/);
-        const spokenMatch = clean.match(/"spokenScript"\s*:\s*"((?:\\.|[^"\\])*)"/);
-        const scriptMatch = clean.match(/"script"\s*:\s*"((?:\\.|[^"\\])*)"/);
+        console.warn("Standard JSON parse failed, running fallback parsers (JSON & YAML):", e);
 
-        if (displayMatch) {
-            displayScript = displayMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
-        } else if (scriptMatch) {
-            displayScript = scriptMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
+        // 1. JSON Regex extraction
+        const jsonDisplayMatch = clean.match(/"displayScript"\s*:\s*"((?:\\.|[^"\\])*)"/);
+        const jsonSpokenMatch = clean.match(/"spokenScript"\s*:\s*"((?:\\.|[^"\\])*)"/);
+        const jsonScriptMatch = clean.match(/"script"\s*:\s*"((?:\\.|[^"\\])*)"/);
+
+        if (jsonDisplayMatch) {
+            displayScript = jsonDisplayMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
+        } else if (jsonScriptMatch) {
+            displayScript = jsonScriptMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
         }
 
-        if (spokenMatch) {
-            spokenScript = spokenMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
-        } else {
+        if (jsonSpokenMatch) {
+            spokenScript = jsonSpokenMatch[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
+        }
+
+        // 2. YAML / Key-Value Regex extraction (e.g. displayScript: ... \n spokenScript: ...)
+        if (!displayScript) {
+            const yamlDisplayMatch = clean.match(/(?:^|\n)\s*displayScript\s*:\s*["']?([\s\S]*?)(?=(?:\n\s*spokenScript|\n\s*nextTopics|\n\s*sources|["']?\s*$))/i);
+            if (yamlDisplayMatch) {
+                displayScript = yamlDisplayMatch[1].trim().replace(/^["']|["']$/g, "");
+            }
+        }
+
+        if (!spokenScript) {
+            const yamlSpokenMatch = clean.match(/(?:^|\n)\s*spokenScript\s*:\s*["']?([\s\S]*?)(?=(?:\n\s*nextTopics|\n\s*sources|["']?\s*$))/i);
+            if (yamlSpokenMatch) {
+                spokenScript = yamlSpokenMatch[1].trim().replace(/^["']|["']$/g, "");
+            }
+        }
+
+        // 3. Omni-Parser: If raw text without keys, use directly
+        if (!displayScript && clean.length > 20 && !clean.startsWith("{") && !clean.includes("displayScript:")) {
+            const strippedText = clean.replace(/^#+\s*.*$/gm, "").trim();
+            if (strippedText.length > 20) {
+                displayScript = strippedText;
+                spokenScript = strippedText;
+            }
+        }
+
+        if (!spokenScript) {
             spokenScript = displayScript;
         }
 
-        // Fallback nextTopics
+        // Fallback nextTopics (JSON style)
         const topicMatches = clean.matchAll(/\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"icon"\s*:\s*"([^"]+)"\s*,\s*"title"\s*:\s*"([^"]+)"\s*,\s*"prompt"\s*:\s*"([^"]+)"\s*\}/g);
         for (const m of Array.from(topicMatches)) {
             nextTopics.push({ id: m[1], icon: m[2], title: m[3], prompt: m[4] });
+        }
+
+        // Fallback nextTopics (YAML style: - id: "1" \n icon: "📸" ...)
+        if (nextTopics.length === 0 && clean.includes("nextTopics:")) {
+            const yamlTopicBlocks = clean.split(/-\s*id\s*:/i).slice(1);
+            for (const block of yamlTopicBlocks) {
+                const titleM = block.match(/title\s*:\s*["']?([^"\n\r]+)["']?/i);
+                const promptM = block.match(/prompt\s*:\s*["']?([^"\n\r]+)["']?/i);
+                const iconM = block.match(/icon\s*:\s*["']?([^"\n\r]+)["']?/i);
+                if (titleM && promptM) {
+                    nextTopics.push({
+                        id: `ytopic-${Date.now()}-${nextTopics.length}`,
+                        icon: iconM ? iconM[1].trim() : "✨",
+                        title: titleM[1].trim(),
+                        prompt: promptM[1].trim(),
+                    });
+                }
+            }
         }
 
         // Fallback sources
@@ -205,6 +258,21 @@ async function handleGenerateAudio(
             sources.push({ title: m[1], url: m[2] });
         }
     }
+
+    // Sanitize displayScript & spokenScript: strip any leaked keys like "displayScript:", "spokenScript:", "nextTopics:"
+    function cleanScriptText(text: string): string {
+        let cleaned = text.trim();
+        // Remove leading displayScript: or spokenScript:
+        cleaned = cleaned.replace(/^(?:displayScript|spokenScript|script)\s*:\s*["']?/i, "");
+        // If nextTopics or spokenScript leaked into the text, cut off before them
+        cleaned = cleaned.split(/(?:\n\s*spokenScript:|\n\s*nextTopics:|\n\s*sources:)/i)[0];
+        // Clean leading/trailing quotes
+        cleaned = cleaned.replace(/^["']|["']$/g, "").trim();
+        return cleaned;
+    }
+
+    displayScript = cleanScriptText(displayScript);
+    spokenScript = cleanScriptText(spokenScript);
 
     // Ensure sentence is not cut off midway if a truncation occurred
     function ensureCompleteSentence(text: string): string {
@@ -265,10 +333,19 @@ async function handleGenerateAudio(
         spokenScript = spokenScript.replace(/^[^{]*\{[\s\S]*?"(?:spokenScript|script)"\s*:\s*"/, "").replace(/",[\s\S]*$/, "");
     }
 
-    if (!displayScript) {
-        displayScript = spot.description_base;
+    // Strict validation: NEVER fallback to "No description available"
+    if (!displayScript || displayScript.includes("No description available")) {
+        if (hasValidDesc) {
+            displayScript = spot.description_base;
+        } else {
+            console.error("AI failed to generate a valid guide script for spot:", spot.name);
+            return NextResponse.json(
+                { error: "ガイド原稿の生成に失敗しました。もう一度お試しください。" },
+                { status: 500 }
+            );
+        }
     }
-    if (!spokenScript) {
+    if (!spokenScript || spokenScript.includes("No description available")) {
         spokenScript = displayScript;
     }
 
