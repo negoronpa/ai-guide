@@ -67,6 +67,20 @@ interface PrefetchedTopicData {
     status: "ready" | "loading" | "error";
 }
 
+function sanitizeTopic(t: any, idx: number): NextTopic {
+    if (!t) {
+        return { id: `topic-${idx}-${Date.now()}`, icon: "✨", title: `トピック ${idx + 1}`, prompt: `トピック ${idx + 1}` };
+    }
+    if (typeof t === "string") {
+        return { id: `topic-${idx}-${Date.now()}`, icon: "✨", title: t, prompt: t };
+    }
+    const title = (t.title || t.name || t.topic || `トピック ${idx + 1}`).toString();
+    const prompt = (t.prompt || t.question || title).toString();
+    const icon = (t.icon || "✨").toString();
+    const id = (t.id || `topic-${idx}-${Date.now()}`).toString();
+    return { id, icon, title, prompt };
+}
+
 export default function SpotPage() {
     const params = useParams();
     const spotId = params.id as string;
@@ -133,9 +147,10 @@ export default function SpotPage() {
         prefetchTimerRef.current = setTimeout(() => {
             console.log("Triggering background speculative prefetch for 3 next topics...");
 
-            nextTopics.forEach((topic) => {
-                const cacheKey = topic.prompt.trim();
-                if (prefetchCache[cacheKey]?.status === "ready") {
+            nextTopics.forEach((rawTopic, idx) => {
+                const topic = sanitizeTopic(rawTopic, idx);
+                const cacheKey = (topic.prompt || topic.title || "").trim();
+                if (!cacheKey || prefetchCache[cacheKey]?.status === "ready") {
                     return;
                 }
 
@@ -185,7 +200,9 @@ export default function SpotPage() {
                         if (topicsHeader) {
                             try {
                                 const parsed = JSON.parse(decodeURIComponent(topicsHeader));
-                                if (Array.isArray(parsed)) parsedNextTopics = parsed;
+                                if (Array.isArray(parsed)) {
+                                    parsedNextTopics = parsed.map(sanitizeTopic);
+                                }
                             } catch (e) {
                                 console.warn("Prefetch topics parse warning:", e);
                             }
@@ -354,7 +371,7 @@ export default function SpotPage() {
                 try {
                     const parsedTopics = JSON.parse(decodeURIComponent(topicsHeader));
                     if (Array.isArray(parsedTopics)) {
-                        setNextTopics(parsedTopics);
+                        setNextTopics(parsedTopics.map(sanitizeTopic));
                     }
                 } catch (e) {
                     console.warn("Error parsing next topics header:", e);
@@ -655,8 +672,10 @@ export default function SpotPage() {
                                 </div>
 
                                 <div className="grid grid-cols-1 gap-2.5">
-                                    {nextTopics.map((topic) => {
-                                        const isReady = prefetchCache[topic.prompt.trim()]?.status === "ready";
+                                    {nextTopics.map((rawTopic, idx) => {
+                                        const topic = sanitizeTopic(rawTopic, idx);
+                                        const cacheKey = (topic.prompt || topic.title || "").trim();
+                                        const isReady = cacheKey ? prefetchCache[cacheKey]?.status === "ready" : false;
                                         return (
                                             <button
                                                 key={topic.id}
