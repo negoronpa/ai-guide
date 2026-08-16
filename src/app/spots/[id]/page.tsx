@@ -18,7 +18,8 @@ import {
     RotateCcw,
     Compass,
     ExternalLink,
-    BookOpen
+    BookOpen,
+    Zap
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -58,6 +59,14 @@ interface NextTopic {
     prompt: string;
 }
 
+interface PrefetchedTopicData {
+    scriptText: string;
+    audioUrl: string;
+    nextTopics: NextTopic[];
+    sources: Array<{ title: string; url: string }>;
+    status: "ready" | "loading" | "error";
+}
+
 export default function SpotPage() {
     const params = useParams();
     const spotId = params.id as string;
@@ -78,6 +87,10 @@ export default function SpotPage() {
     const [generatingMessage, setGeneratingMessage] = useState("AIが音声を高速生成中...");
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
+    // Speculative Prefetch Cache & Controllers
+    const [prefetchCache, setPrefetchCache] = useState<Record<string, PrefetchedTopicData>>({});
+    const prefetchAbortControllers = useRef<AbortController[]>([]);
+    const prefetchTimerRef = useRef<NodeJS.Timeout | null>(null);
     const timelineEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -101,6 +114,132 @@ export default function SpotPage() {
                 .finally(() => setIsLoadingSpot(false));
         }
     }, [spotId, spot]);
+
+    // Delayed Speculative Prefetch Trigger (Approach ③: Starts 4.5s after audio begins playing)
+    useEffect(() => {
+        // Clear previous timers and active prefetch requests
+        if (prefetchTimerRef.current) {
+            clearTimeout(prefetchTimerRef.current);
+        }
+        prefetchAbortControllers.current.forEach((controller) => controller.abort());
+        prefetchAbortControllers.current = [];
+
+        if (!audioUrl || nextTopics.length === 0 || !spot) {
+            return;
+        }
+
+        console.log("Scheduling delayed speculative prefetch in 4.5 seconds for", nextTopics.length, "topics...");
+
+        prefetchTimerRef.current = setTimeout(() => {
+            console.log("Triggering background speculative prefetch for 3 next topics...");
+
+            nextTopics.forEach((topic) => {
+                const cacheKey = topic.prompt.trim();
+                if (prefetchCache[cacheKey]?.status === "ready") {
+                    return;
+                }
+
+                const controller = new AbortController();
+                prefetchAbortControllers.current.push(controller);
+
+                setPrefetchCache((prev) => ({
+                    ...prev,
+                    [cacheKey]: {
+                        scriptText: "",
+                        audioUrl: "",
+                        nextTopics: [],
+                        sources: [],
+                        status: "loading",
+                    },
+                }));
+
+                fetch("/api/generate-audio", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    signal: controller.signal,
+                    body: JSON.stringify({
+                        spot,
+                        language: selectedLanguage,
+                        interests: selectedInterests,
+                        userProfile: userProfile.trim(),
+                        currentTopic: topic.prompt,
+                    }),
+                })
+                    .then(async (res) => {
+                        if (!res.ok) throw new Error("Prefetch failed");
+
+                        const scriptHeader = res.headers.get("x-script-text");
+                        const topicsHeader = res.headers.get("x-next-topics");
+                        const sourcesHeader = res.headers.get("x-sources");
+
+                        let scriptText = "";
+                        if (scriptHeader) {
+                            try {
+                                scriptText = decodeURIComponent(scriptHeader);
+                            } catch {
+                                scriptText = scriptHeader;
+                            }
+                        }
+
+                        let parsedNextTopics: NextTopic[] = [];
+                        if (topicsHeader) {
+                            try {
+                                const parsed = JSON.parse(decodeURIComponent(topicsHeader));
+                                if (Array.isArray(parsed)) parsedNextTopics = parsed;
+                            } catch (e) {
+                                console.warn("Prefetch topics parse warning:", e);
+                            }
+                        }
+
+                        let parsedSources: Array<{ title: string; url: string }> = [];
+                        if (sourcesHeader) {
+                            try {
+                                const parsed = JSON.parse(decodeURIComponent(sourcesHeader));
+                                if (Array.isArray(parsed)) parsedSources = parsed;
+                            } catch (e) {
+                                console.warn("Prefetch sources parse warning:", e);
+                            }
+                        }
+
+                        const blob = await res.blob();
+                        const prefetchedAudioUrl = URL.createObjectURL(blob);
+
+                        setPrefetchCache((prev) => ({
+                            ...prev,
+                            [cacheKey]: {
+                                scriptText,
+                                audioUrl: prefetchedAudioUrl,
+                                nextTopics: parsedNextTopics,
+                                sources: parsedSources,
+                                status: "ready",
+                            },
+                        }));
+                        console.log(`⚡ Prefetched ready for topic: "${topic.title}"`);
+                    })
+                    .catch((err) => {
+                        if (err.name !== "AbortError") {
+                            console.warn("Prefetch error for topic", topic.title, err);
+                            setPrefetchCache((prev) => ({
+                                ...prev,
+                                [cacheKey]: {
+                                    scriptText: "",
+                                    audioUrl: "",
+                                    nextTopics: [],
+                                    sources: [],
+                                    status: "error",
+                                },
+                            }));
+                        }
+                    });
+            });
+        }, 4500);
+
+        return () => {
+            if (prefetchTimerRef.current) {
+                clearTimeout(prefetchTimerRef.current);
+            }
+        };
+    }, [audioUrl, nextTopics, spot, selectedLanguage, selectedInterests, userProfile]);
 
     if (isLoadingSpot) {
         return (
@@ -132,6 +271,35 @@ export default function SpotPage() {
     };
 
     const executeGenerate = async (topicTitle: string, topicPrompt: string = "", icon: string = "✨") => {
+        const cacheKey = topicPrompt.trim();
+        const cachedItem = prefetchCache[cacheKey];
+
+        // 🚀 FAST PATH: Instant Playback if prefetch cache hit (0ms latency!)
+        if (cachedItem && cachedItem.status === "ready" && cachedItem.audioUrl) {
+            console.log("⚡ Zero Latency Cache Hit for:", topicTitle);
+            const newChapter: GuideChapter = {
+                id: `chapter-${Date.now()}`,
+                title: topicTitle,
+                icon: icon,
+                script: cachedItem.scriptText,
+                audioUrl: cachedItem.audioUrl,
+                sources: cachedItem.sources,
+            };
+
+            setChapters((prev) => [...prev, newChapter]);
+            setActiveChapterId(newChapter.id);
+            setAudioUrl(cachedItem.audioUrl);
+            if (cachedItem.nextTopics.length > 0) {
+                setNextTopics(cachedItem.nextTopics);
+            }
+
+            setTimeout(() => {
+                timelineEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, 200);
+            return;
+        }
+
+        // Standard On-Demand Fetch (if not in prefetch cache or custom question)
         setIsGenerating(true);
         setGeneratingMessage(topicPrompt ? `「${topicTitle}」を深掘り生成中...` : "パーソナライズ音声を生成中...");
 
@@ -487,31 +655,47 @@ export default function SpotPage() {
                                 </div>
 
                                 <div className="grid grid-cols-1 gap-2.5">
-                                    {nextTopics.map((topic) => (
-                                        <button
-                                            key={topic.id}
-                                            onClick={() => executeGenerate(topic.title, topic.prompt, topic.icon)}
-                                            disabled={isGenerating}
-                                            className="group w-full p-3.5 bg-gradient-to-r from-neutral-50 to-blue-50/30 hover:from-blue-50 hover:to-blue-100/50 border border-neutral-200 hover:border-blue-300 rounded-2xl flex items-center justify-between text-left transition-all active:scale-98 shadow-sm hover:shadow"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <span className="text-2xl p-1.5 bg-white rounded-xl shadow-xs">
-                                                    {topic.icon}
-                                                </span>
-                                                <div>
-                                                    <p className="text-sm font-bold text-neutral-900 group-hover:text-blue-700 transition-colors">
-                                                        {topic.title}
-                                                    </p>
-                                                    <p className="text-xs text-neutral-500 line-clamp-1 mt-0.5">
-                                                        {topic.prompt}
-                                                    </p>
+                                    {nextTopics.map((topic) => {
+                                        const isReady = prefetchCache[topic.prompt.trim()]?.status === "ready";
+                                        return (
+                                            <button
+                                                key={topic.id}
+                                                onClick={() => executeGenerate(topic.title, topic.prompt, topic.icon)}
+                                                disabled={isGenerating}
+                                                className={cn(
+                                                    "group relative w-full p-3.5 rounded-2xl flex items-center justify-between text-left transition-all active:scale-98 border shadow-xs hover:shadow",
+                                                    isReady
+                                                        ? "bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-white border-blue-300 hover:border-blue-500 hover:shadow-blue-500/10"
+                                                        : "bg-gradient-to-r from-neutral-50 to-blue-50/20 hover:from-blue-50/50 hover:to-blue-100/30 border-neutral-200 hover:border-blue-300"
+                                                )}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-2xl p-1.5 bg-white rounded-xl shadow-2xs">
+                                                        {topic.icon}
+                                                    </span>
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-sm font-bold text-neutral-900 group-hover:text-blue-700 transition-colors">
+                                                                {topic.title}
+                                                            </p>
+                                                            {isReady && (
+                                                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-md animate-in fade-in">
+                                                                    <Zap className="w-2.5 h-2.5 fill-blue-600 text-blue-600" />
+                                                                    即時再生
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-xs text-neutral-500 line-clamp-1 mt-0.5">
+                                                            {topic.prompt}
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div className="p-2 bg-white rounded-full text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors flex-shrink-0">
-                                                <ArrowRight className="w-4 h-4" />
-                                            </div>
-                                        </button>
-                                    ))}
+                                                <div className="p-2 bg-white rounded-full text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors flex-shrink-0 ml-2 shadow-2xs">
+                                                    <ArrowRight className="w-4 h-4" />
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}
