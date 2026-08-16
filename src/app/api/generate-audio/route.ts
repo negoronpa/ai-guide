@@ -138,8 +138,7 @@ async function handleGenerateAudio(
                 thinkingBudget: 0,
             },
             temperature: 0.3,
-            maxOutputTokens: 1000,
-            responseMimeType: "application/json",
+            maxOutputTokens: 1200,
             tools: [{ googleSearch: {} }],
         },
     });
