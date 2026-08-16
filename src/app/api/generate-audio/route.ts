@@ -85,11 +85,14 @@ async function handleGenerateAudio(
       ${phaseGuidance}
       
       ========================================================================
-      STEP 3: SCRIPT GENERATION & LANGUAGE RULES (STRICT)
+      STEP 3: SCRIPT GENERATION & LANGUAGE RULES (STRICT COMPLETENESS)
       ========================================================================
       - TARGET LANGUAGE IS: ${languageName}.
-      - Length: around 75-95 words (about 35-45 seconds of natural speech).
-      - Use punctuation generously for natural speech cadence.
+      - SCRIPT LENGTH & COMPLETENESS:
+        * Japanese ("ja"): exactly 3 to 5 complete sentences (around 160-220 characters).
+        * English ("en") / other languages: exactly 3 to 5 complete sentences (around 70-95 words).
+        * STRICT ENDING: The script MUST ALWAYS be a complete, self-contained story that ends with proper concluding punctuation (「。」, 「！」, ".", or "!"). NEVER leave a sentence hanging or cut off midway!
+      - Use natural punctuation generously for pleasant speech cadence.
       
       Language-specific script rules:
       * For Japanese ("ja"):
@@ -117,7 +120,7 @@ async function handleGenerateAudio(
       OUTPUT FORMAT:
       You MUST return a JSON object with this exact schema:
       {
-        "displayScript": "Clean text in ${languageName}",
+        "displayScript": "Complete, polished script in ${languageName}",
         "spokenScript": "Phonetically optimized text for TTS in ${languageName}",
         "nextTopics": [
           { "id": "1", "icon": "📸", "title": "Catchy Title in ${languageName}", "prompt": "Detailed question in ${languageName}" },
@@ -138,7 +141,7 @@ async function handleGenerateAudio(
                 thinkingBudget: 0,
             },
             temperature: 0.3,
-            maxOutputTokens: 1200,
+            maxOutputTokens: 2500,
             tools: [{ googleSearch: {} }],
         },
     });
@@ -202,6 +205,31 @@ async function handleGenerateAudio(
             sources.push({ title: m[1], url: m[2] });
         }
     }
+
+    // Ensure sentence is not cut off midway if a truncation occurred
+    function ensureCompleteSentence(text: string): string {
+        const trimmed = text.trim();
+        if (!trimmed) return trimmed;
+        // If it doesn't end with a closing punctuation, find the last valid sentence terminator
+        const validEnds = ["。", "！", "？", ".", "!", "?"];
+        if (!validEnds.some((end) => trimmed.endsWith(end))) {
+            const lastPeriod = Math.max(
+                trimmed.lastIndexOf("。"),
+                trimmed.lastIndexOf("！"),
+                trimmed.lastIndexOf("？"),
+                trimmed.lastIndexOf("."),
+                trimmed.lastIndexOf("!")
+            );
+            if (lastPeriod > 40) {
+                return trimmed.slice(0, lastPeriod + 1);
+            }
+            return trimmed + "。";
+        }
+        return trimmed;
+    }
+
+    displayScript = ensureCompleteSentence(displayScript);
+    spokenScript = ensureCompleteSentence(spokenScript);
 
     // Deduplicate nextTopics by title/prompt and cap strictly to 3
     const uniqueTopics: any[] = [];
