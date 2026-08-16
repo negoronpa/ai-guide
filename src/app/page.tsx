@@ -1,4 +1,5 @@
 import SearchOverlay from "@/components/SearchOverlay";
+import UserProfileCard from "@/components/UserProfileCard";
 import Link from "next/link";
 import { mockSpots } from "@/data/mockSpots";
 import { MapPin, ArrowRight } from "lucide-react";
@@ -15,9 +16,11 @@ export default function Home() {
                 </p>
             </header>
 
-            <div className="mb-12">
+            <div className="mb-6">
                 <SearchOverlay />
             </div>
+
+            <UserProfileCard />
 
             <div className="space-y-6">
                 <h2 className="text-xl font-bold text-neutral-800">Recommended Spots</h2>
