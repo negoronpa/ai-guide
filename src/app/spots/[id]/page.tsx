@@ -274,7 +274,21 @@ export default function SpotPage() {
     const prefetchAbortControllers = useRef<AbortController[]>([]);
     const prefetchTimerRef = useRef<NodeJS.Timeout | null>(null);
     const timelineEndRef = useRef<HTMLDivElement>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
     const sessionIdRef = useRef<string>(`session-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`);
+
+    // Ensure audio plays automatically whenever audioUrl changes
+    useEffect(() => {
+        if (audioUrl && audioRef.current) {
+            audioRef.current.currentTime = 0;
+            const playPromise = audioRef.current.play();
+            if (playPromise !== undefined) {
+                playPromise.catch((err) => {
+                    console.log("Audio play() waiting for user interaction or permitted:", err);
+                });
+            }
+        }
+    }, [audioUrl]);
 
     const trackEvent = (eventType: string, chapterIndex: number, topicTitle?: string, isZeroLatency?: boolean, feedbackType?: string) => {
         if (!spot) return;
@@ -1084,7 +1098,15 @@ export default function SpotPage() {
                             <p className="text-sm font-bold truncate">{spot.name}</p>
                             <p className="text-xs text-neutral-400">Interactive Audio Story</p>
                         </div>
-                        <audio controls autoPlay src={audioUrl} className="h-10 w-48 flex-shrink-0" />
+                        <audio
+                            key={audioUrl}
+                            ref={audioRef}
+                            controls
+                            autoPlay
+                            playsInline
+                            src={audioUrl}
+                            className="h-10 w-48 flex-shrink-0"
+                        />
                     </div>
                 </div>
             )}
