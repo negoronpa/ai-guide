@@ -81,6 +81,21 @@ function sanitizeTopic(t: any, idx: number): NextTopic {
     return { id, icon, title, prompt };
 }
 
+function sanitizeTopicList(rawList: any[]): NextTopic[] {
+    if (!Array.isArray(rawList)) return [];
+    const unique: NextTopic[] = [];
+    const seen = new Set<string>();
+    rawList.forEach((raw, idx) => {
+        const item = sanitizeTopic(raw, idx);
+        const key = (item.title || item.prompt || "").trim();
+        if (key && !seen.has(key)) {
+            seen.add(key);
+            unique.push(item);
+        }
+    });
+    return unique.slice(0, 3);
+}
+
 export default function SpotPage() {
     const params = useParams();
     const spotId = params.id as string;
@@ -201,7 +216,7 @@ export default function SpotPage() {
                             try {
                                 const parsed = JSON.parse(decodeURIComponent(topicsHeader));
                                 if (Array.isArray(parsed)) {
-                                    parsedNextTopics = parsed.map(sanitizeTopic);
+                                    parsedNextTopics = sanitizeTopicList(parsed);
                                 }
                             } catch (e) {
                                 console.warn("Prefetch topics parse warning:", e);
@@ -307,7 +322,7 @@ export default function SpotPage() {
             setActiveChapterId(newChapter.id);
             setAudioUrl(cachedItem.audioUrl);
             if (cachedItem.nextTopics.length > 0) {
-                setNextTopics(cachedItem.nextTopics);
+                setNextTopics(sanitizeTopicList(cachedItem.nextTopics));
             }
 
             setTimeout(() => {
@@ -371,7 +386,7 @@ export default function SpotPage() {
                 try {
                     const parsedTopics = JSON.parse(decodeURIComponent(topicsHeader));
                     if (Array.isArray(parsedTopics)) {
-                        setNextTopics(parsedTopics.map(sanitizeTopic));
+                        setNextTopics(sanitizeTopicList(parsedTopics));
                     }
                 } catch (e) {
                     console.warn("Error parsing next topics header:", e);

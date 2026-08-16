@@ -203,6 +203,18 @@ async function handleGenerateAudio(
         }
     }
 
+    // Deduplicate nextTopics by title/prompt and cap strictly to 3
+    const uniqueTopics: any[] = [];
+    const seenTitles = new Set<string>();
+    for (const t of nextTopics) {
+        const titleKey = (t.title || t.prompt || "").trim();
+        if (titleKey && !seenTitles.has(titleKey)) {
+            seenTitles.add(titleKey);
+            uniqueTopics.push(t);
+        }
+    }
+    nextTopics = uniqueTopics.slice(0, 3);
+
     // Merge Google Grounding web sources (real primary references) with parsed sources
     if (webSources.length > 0) {
         const existingUrls = new Set(sources.map((s) => s.url));
