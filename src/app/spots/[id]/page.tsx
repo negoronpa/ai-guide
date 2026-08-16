@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { mockSpots, Spot } from "@/data/mockSpots";
 import {
     Headphones,
@@ -13,6 +14,7 @@ import {
     Volume2,
     FileText,
     ArrowRight,
+    ArrowLeft,
     MessageCircleQuestion,
     Send,
     RotateCcw,
@@ -32,20 +34,153 @@ function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
 
-const LANGUAGES = [
-    { id: "en", label: "English" },
-    { id: "ja", label: "日本語" },
-    { id: "zh", label: "中文" },
-    { id: "ru", label: "Русский" },
-    { id: "bilingual", label: "JP & EN" },
-];
+interface InterestOption {
+    id: string;
+    label: string;
+    icon: string;
+}
 
-const INTERESTS = [
-    { id: "history", label: "History", icon: "🏛️" },
-    { id: "culture", label: "Culture", icon: "🎨" },
-    { id: "food", label: "Food", icon: "🍣" },
-    { id: "nature", label: "Nature", icon: "🌳" },
-];
+const INTERESTS_MAP: Record<string, InterestOption[]> = {
+    en: [
+        { id: "history", label: "History", icon: "🏛️" },
+        { id: "culture", label: "Culture", icon: "🎨" },
+        { id: "food", label: "Food & Snacks", icon: "🍣" },
+        { id: "nature", label: "Nature & Views", icon: "🌳" },
+    ],
+    ja: [
+        { id: "history", label: "歴史・起源", icon: "🏛️" },
+        { id: "culture", label: "文化・芸術", icon: "🎨" },
+        { id: "food", label: "グルメ・名物", icon: "🍣" },
+        { id: "nature", label: "自然・景観", icon: "🌳" },
+    ],
+    zh: [
+        { id: "history", label: "历史背景", icon: "🏛️" },
+        { id: "culture", label: "文化艺术", icon: "🎨" },
+        { id: "food", label: "特色美食", icon: "🍣" },
+        { id: "nature", label: "自然风光", icon: "🌳" },
+    ],
+    ru: [
+        { id: "history", label: "История", icon: "🏛️" },
+        { id: "culture", label: "Культура", icon: "🎨" },
+        { id: "food", label: "Еда и кухня", icon: "🍣" },
+        { id: "nature", label: "Природа", icon: "🌳" },
+    ],
+};
+
+const SPOT_UI_STRINGS: Record<string, any> = {
+    en: {
+        back: "Back to Spots",
+        aboutSpot: "About this Spot",
+        profileTitle: "Traveler Persona (Personalization)",
+        edit: "Edit",
+        save: "Save",
+        noProfile: "Not set (Can be edited anytime)",
+        profilePlaceholder: "e.g. Traveling with kids. Loves anime / Solo trip interested in architecture...",
+        interestsTitle: "Your Interests",
+        generateBtn: "Start Personalized Audio Story",
+        generating: "Generating your audio story...",
+        chapterPlaying: "Playing",
+        chapterPlay: "Play",
+        sources: "Sources & References:",
+        helpfulQ: "Was this story helpful?",
+        helpfulGood: "Good",
+        nextTopicsTitle: "What would you like to explore next?",
+        instantPlay: "Instant Play",
+        askPlaceholder: "Ask anything else... (e.g. Any nearby hidden cafes?)",
+        feedbackQ: "Did you gain new insights or inspiration today?",
+        feedbackDiscovery: "💡 New Discoveries!",
+        feedbackRespect: "✨ Deeply Touched by Heritage!",
+        feedbackDifficult: "🤔 A bit too difficult",
+        feedbackThanks: "Thank you for your feedback! We'll use it to improve future guides.",
+        retry: "Try Again",
+        retryHint: "Please check your network and try again",
+        defaultTopic: "Highlight Guide",
+    },
+    ja: {
+        back: "スポット一覧へ戻る",
+        aboutSpot: "スポットについて",
+        profileTitle: "あなたの旅行スタイル・属性（パーソナライズ）",
+        edit: "編集",
+        save: "保存",
+        noProfile: "未設定（TOP画面または右上の「編集」から設定できます）",
+        profilePlaceholder: "例: アニメ好きの一人旅 / 小学生連れの家族旅行 / 建築と歴史重視...",
+        interestsTitle: "あなたの興味・関心",
+        generateBtn: "✨ ガイドを再生する (Start Audio Guide)",
+        generating: "AIが音声を高速生成中...",
+        chapterPlaying: "再生中",
+        chapterPlay: "再生",
+        sources: "参照元・公式情報 (Sources):",
+        helpfulQ: "この解説は役に立ちましたか？",
+        helpfulGood: "Good",
+        nextTopicsTitle: "次に何を聞きたいですか？（深掘りテーマ）",
+        instantPlay: "即時再生",
+        askPlaceholder: "他に聞きたいことはありますか？（例: 近くの穴場カフェは？）",
+        feedbackQ: "今日の音声ガイドで、新しい発見や学びは得られましたか？",
+        feedbackDiscovery: "💡 新しい発見があった！",
+        feedbackRespect: "✨ 深い歴史に感動した！",
+        feedbackDifficult: "🤔 ちょっと難しかった",
+        feedbackThanks: "フィードバックありがとうございます！より良いガイド作りに役立てます。",
+        retry: "もう一度試す",
+        retryHint: "通信状態を確認して再試行してください",
+        defaultTopic: "ハイライトガイド",
+    },
+    zh: {
+        back: "返回景点列表",
+        aboutSpot: "关于本景点",
+        profileTitle: "旅行者偏好（个性化定制）",
+        edit: "编辑",
+        save: "保存",
+        noProfile: "未设定（可在首页或右上角点击“编辑”设定）",
+        profilePlaceholder: "例如：喜欢动漫的独自旅行 / 带小学生的家庭出行 / 偏好历史建筑...",
+        interestsTitle: "您的兴趣偏好",
+        generateBtn: "✨ 生成专属语音导览",
+        generating: "AI正在高速生成语音...",
+        chapterPlaying: "播放中",
+        chapterPlay: "播放",
+        sources: "参考来源与官方信息：",
+        helpfulQ: "这段讲解对您有帮助吗？",
+        helpfulGood: "好评",
+        nextTopicsTitle: "接下来想深入了解什么？（深度探索主题）",
+        instantPlay: "即时播放",
+        askPlaceholder: "还想了解什么？（例如：附近有特色咖啡馆吗？）",
+        feedbackQ: "今天的语音导览让您有所收获或感悟吗？",
+        feedbackDiscovery: "💡 发现了新知识！",
+        feedbackRespect: "✨ 被历史与匠心深深打动！",
+        feedbackDifficult: "🤔 有点难懂",
+        feedbackThanks: "感谢您的反馈！我们将持续优化导览体验。",
+        retry: "重试",
+        retryHint: "请检查网络连接后重试",
+        defaultTopic: "亮点导览",
+    },
+    ru: {
+        back: "Назад к местам",
+        aboutSpot: "О месте",
+        profileTitle: "Профиль путешественника (Персонализация)",
+        edit: "Изм.",
+        save: "Сохр.",
+        noProfile: "Не задан (можно настроить в профиле)",
+        profilePlaceholder: "Например: Семья с детьми / Любитель аниме / Интерес к архитектуре...",
+        interestsTitle: "Ваши интересы",
+        generateBtn: "✨ Создать аудиогид",
+        generating: "ИИ генерирует аудиоисторию...",
+        chapterPlaying: "Играет",
+        chapterPlay: "Слушать",
+        sources: "Источники и ссылки:",
+        helpfulQ: "Была ли эта история полезной?",
+        helpfulGood: "Полезно",
+        nextTopicsTitle: "О чем хотите узнать подробнее?",
+        instantPlay: "Мгновенно",
+        askPlaceholder: "Хотите спросить что-то еще? (например: уютные кафе рядом?)",
+        feedbackQ: "Узнали ли вы что-то новое сегодня?",
+        feedbackDiscovery: "💡 Новые открытия!",
+        feedbackRespect: "✨ Впечатлен историей!",
+        feedbackDifficult: "🤔 Сложновато",
+        feedbackThanks: "Спасибо за ваш отзыв! Мы используем его для улучшения гидов.",
+        retry: "Повторить",
+        retryHint: "Проверьте соединение и попробуйте снова",
+        defaultTopic: "Главный гид",
+    },
+};
 
 interface GuideChapter {
     id: string;
@@ -176,7 +311,16 @@ export default function SpotPage() {
         if (savedProfile) {
             setUserProfile(savedProfile);
         }
+        const savedLang = localStorage.getItem("ai_guide_language");
+        if (savedLang) {
+            setSelectedLanguage(savedLang);
+        }
     }, []);
+
+    const handleLanguageSelect = (langId: string) => {
+        setSelectedLanguage(langId);
+        localStorage.setItem("ai_guide_language", langId);
+    };
 
     useEffect(() => {
         if (!spot && spotId) {
@@ -506,8 +650,22 @@ export default function SpotPage() {
         setActiveChapterId(chapter.id);
     };
 
+    const t = SPOT_UI_STRINGS[selectedLanguage] || SPOT_UI_STRINGS.en;
+    const currentInterests = INTERESTS_MAP[selectedLanguage] || INTERESTS_MAP.en;
+
     return (
         <main className="max-w-2xl mx-auto pb-40">
+            {/* Top Bar with Back Link */}
+            <div className="p-4 flex items-center justify-between">
+                <Link
+                    href="/"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-xl text-xs font-bold transition-all shadow-2xs"
+                >
+                    <ArrowLeft className="w-4 h-4" />
+                    {t.back}
+                </Link>
+            </div>
+
             {/* Hero Section */}
             <div className="relative h-64 w-full">
                 <img
@@ -530,7 +688,7 @@ export default function SpotPage() {
                 <section>
                     <div className="flex items-center gap-2 mb-2 text-neutral-800">
                         <Headphones className="w-5 h-5 text-blue-600" />
-                        <h2 className="text-lg font-bold">About this Spot</h2>
+                        <h2 className="text-lg font-bold">{t.aboutSpot}</h2>
                     </div>
                     <p className="text-neutral-600 text-sm leading-relaxed">
                         {spot.description_base}
@@ -543,14 +701,14 @@ export default function SpotPage() {
                         <div className="flex items-center gap-2">
                             <Sparkles className="w-4 h-4 text-blue-600" />
                             <h3 className="text-sm font-bold text-blue-900">
-                                あなたの旅行スタイル・属性（パーソナライズ）
+                                {t.profileTitle}
                             </h3>
                         </div>
                         <button
                             onClick={() => setIsEditingProfile(!isEditingProfile)}
                             className="text-xs font-bold text-blue-600 hover:text-blue-800"
                         >
-                            {isEditingProfile ? "保存" : "編集"}
+                            {isEditingProfile ? t.save : t.edit}
                         </button>
                     </div>
 
@@ -558,52 +716,28 @@ export default function SpotPage() {
                         <textarea
                             value={userProfile}
                             onChange={(e) => handleProfileChange(e.target.value)}
-                            placeholder="例: アニメ好きの一人旅 / 小学生連れの家族旅行 / 建築と歴史重視..."
+                            placeholder={t.profilePlaceholder}
                             rows={2}
                             className="w-full px-3 py-2 bg-white border border-blue-200 rounded-xl text-xs text-neutral-800 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none mt-1"
                         />
                     ) : (
                         <p className="text-xs text-blue-800 leading-relaxed font-medium">
-                            {userProfile ? userProfile : "未設定（TOP画面または右上の「編集」から設定できます）"}
+                            {userProfile ? userProfile : t.noProfile}
                         </p>
                     )}
                 </section>
 
-                {/* Preferences (Language & Interests) - Collapsible or compact */}
+                {/* Preferences (Interests only - Language selection removed since it is set on TOP page) */}
                 {chapters.length === 0 && (
                     <div className="space-y-6 pt-2">
-                        {/* Language Selection */}
-                        <section>
-                            <div className="flex items-center gap-2 mb-3">
-                                <Globe className="w-5 h-5 text-blue-600" />
-                                <h2 className="text-base font-bold text-neutral-800">Your Language</h2>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2">
-                                {LANGUAGES.map((lang) => (
-                                    <button
-                                        key={lang.id}
-                                        onClick={() => setSelectedLanguage(lang.id)}
-                                        className={cn(
-                                            "py-2.5 px-3 rounded-xl border-2 transition-all font-medium text-xs",
-                                            selectedLanguage === lang.id
-                                                ? "border-blue-600 bg-blue-50 text-blue-600 font-bold shadow-sm"
-                                                : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
-                                        )}
-                                    >
-                                        {lang.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </section>
-
                         {/* Interest Selection */}
                         <section>
                             <div className="flex items-center gap-2 mb-3">
                                 <Heart className="w-5 h-5 text-pink-500" />
-                                <h2 className="text-base font-bold text-neutral-800">Your Interests</h2>
+                                <h2 className="text-base font-bold text-neutral-800">{t.interestsTitle}</h2>
                             </div>
                             <div className="grid grid-cols-2 gap-2.5">
-                                {INTERESTS.map((interest) => (
+                                {currentInterests.map((interest) => (
                                     <button
                                         key={interest.id}
                                         onClick={() => toggleInterest(interest.id)}
@@ -623,7 +757,7 @@ export default function SpotPage() {
 
                         {/* Initial Start Button */}
                         <button
-                            onClick={() => executeGenerate("ハイライトガイド", "", "✨")}
+                            onClick={() => executeGenerate(t.defaultTopic, "", "✨")}
                             disabled={isGenerating}
                             className={cn(
                                 "w-full py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-3 transition-all active:scale-98",
@@ -640,7 +774,7 @@ export default function SpotPage() {
                             ) : (
                                 <>
                                     <Sparkles className="w-5 h-5" />
-                                    ガイドを再生する (Start Audio Guide)
+                                    {t.generateBtn}
                                 </>
                             )}
                         </button>
@@ -654,7 +788,7 @@ export default function SpotPage() {
                             <div className="flex items-center gap-2">
                                 <Compass className="w-5 h-5 text-blue-600" />
                                 <h3 className="text-base font-bold text-neutral-900">
-                                    ストーリータイムライン ({chapters.length}チャプター)
+                                    Story Timeline ({chapters.length})
                                 </h3>
                             </div>
                         </div>
@@ -695,12 +829,12 @@ export default function SpotPage() {
                                                 {isActive ? (
                                                     <>
                                                         <Volume2 className="w-3.5 h-3.5 animate-pulse" />
-                                                        再生中
+                                                        {t.chapterPlaying}
                                                     </>
                                                 ) : (
                                                     <>
                                                         <Play className="w-3.5 h-3.5 fill-current" />
-                                                        再生
+                                                        {t.chapterPlay}
                                                     </>
                                                 )}
                                             </button>
@@ -714,7 +848,7 @@ export default function SpotPage() {
                                             <div className="mt-3 pt-3 border-t border-neutral-200/60 pl-7">
                                                 <p className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
                                                     <BookOpen className="w-3 h-3 text-blue-500" />
-                                                    参照元・公式情報 (Sources):
+                                                    {t.sources}
                                                 </p>
                                                 <div className="flex flex-wrap gap-1.5">
                                                     {chapter.sources.map((src, sIdx) => (
@@ -734,7 +868,7 @@ export default function SpotPage() {
                                         )}
                                         {/* Chapter Feedback Thumbs */}
                                         <div className="mt-3 pt-2 flex items-center justify-between border-t border-neutral-200/50 pl-7">
-                                            <span className="text-[10px] text-neutral-400">この解説は役に立ちましたか？</span>
+                                            <span className="text-[10px] text-neutral-400">{t.helpfulQ}</span>
                                             <div className="flex items-center gap-1.5">
                                                 <button
                                                     onClick={() => handleChapterFeedback(chapter.id, idx + 1, chapter.title, "good")}
@@ -744,10 +878,10 @@ export default function SpotPage() {
                                                             ? "bg-emerald-500 text-white shadow-2xs"
                                                             : "bg-white text-neutral-500 hover:text-neutral-800 border border-neutral-200 hover:bg-neutral-50"
                                                     )}
-                                                    title="役に立った"
+                                                    title="Good"
                                                 >
                                                     <ThumbsUp className="w-3 h-3" />
-                                                    {chapterFeedbacks[chapter.id] === "good" && "Good"}
+                                                    {chapterFeedbacks[chapter.id] === "good" && t.helpfulGood}
                                                 </button>
                                                 <button
                                                     onClick={() => handleChapterFeedback(chapter.id, idx + 1, chapter.title, "bad")}
@@ -757,7 +891,7 @@ export default function SpotPage() {
                                                             ? "bg-neutral-700 text-white shadow-2xs"
                                                             : "bg-white text-neutral-500 hover:text-neutral-800 border border-neutral-200 hover:bg-neutral-50"
                                                     )}
-                                                    title="いまいち"
+                                                    title="Bad"
                                                 >
                                                     <ThumbsDown className="w-3 h-3" />
                                                 </button>
@@ -781,7 +915,7 @@ export default function SpotPage() {
                                                 {generationError}
                                             </p>
                                             <p className="text-[11px] text-amber-700 mt-0.5">
-                                                通信状態を確認して再試行してください
+                                                {t.retryHint}
                                             </p>
                                         </div>
                                     </div>
@@ -790,14 +924,14 @@ export default function SpotPage() {
                                             if (lastFailedAction) {
                                                 executeGenerate(lastFailedAction.title, lastFailedAction.prompt, lastFailedAction.icon);
                                             } else {
-                                                executeGenerate("ハイライトガイド", "", "✨");
+                                                executeGenerate(t.defaultTopic, "", "✨");
                                             }
                                         }}
                                         disabled={isGenerating}
                                         className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all flex-shrink-0"
                                     >
                                         <RotateCcw className="w-3.5 h-3.5" />
-                                        もう一度試す
+                                        {t.retry}
                                     </button>
                                 </div>
                             </div>
@@ -809,7 +943,7 @@ export default function SpotPage() {
                                 <div className="flex items-center gap-2 text-neutral-800">
                                     <Sparkles className="w-4 h-4 text-amber-500" />
                                     <h4 className="text-sm font-bold">
-                                        次に何を聞きたいですか？（深掘りテーマ）
+                                        {t.nextTopicsTitle}
                                     </h4>
                                 </div>
 
@@ -842,7 +976,7 @@ export default function SpotPage() {
                                                             {isReady && (
                                                                 <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-md animate-in fade-in">
                                                                     <Zap className="w-2.5 h-2.5 fill-blue-600 text-blue-600" />
-                                                                    即時再生
+                                                                    {t.instantPlay}
                                                                 </span>
                                                             )}
                                                         </div>
@@ -879,7 +1013,7 @@ export default function SpotPage() {
                                     type="text"
                                     value={customQuestion}
                                     onChange={(e) => setCustomQuestion(e.target.value)}
-                                    placeholder="他に聞きたいことはありますか？（例: 近くの穴場カフェは？）"
+                                    placeholder={t.askPlaceholder}
                                     disabled={isGenerating}
                                     className="w-full pl-10 pr-12 py-3 bg-neutral-100 border border-transparent focus:border-blue-400 focus:bg-white rounded-2xl text-xs text-neutral-800 placeholder-neutral-400 focus:outline-none transition-all"
                                 />
@@ -900,13 +1034,13 @@ export default function SpotPage() {
                                     <div className="flex items-center gap-2">
                                         <Sparkles className="w-4 h-4 text-amber-600" />
                                         <h4 className="text-xs font-bold text-amber-950">
-                                            今日の音声ガイドで、新しい発見や学びは得られましたか？
+                                            {t.feedbackQ}
                                         </h4>
                                     </div>
                                     {overallFeedback ? (
                                         <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 bg-emerald-100/70 p-2.5 rounded-xl border border-emerald-200 animate-in fade-in">
                                             <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                                            フィードバックありがとうございます！より良いガイド作りに役立てます。
+                                            {t.feedbackThanks}
                                         </div>
                                     ) : (
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -914,22 +1048,19 @@ export default function SpotPage() {
                                                 onClick={() => handleOverallFeedback("discovery")}
                                                 className="p-2.5 bg-white hover:bg-amber-100/60 border border-amber-200 text-amber-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:shadow-xs transition-all active:scale-98 text-left"
                                             >
-                                                <span className="text-base">💡</span>
-                                                <span>新しい発見があった！</span>
+                                                <span className="text-xs">{t.feedbackDiscovery}</span>
                                             </button>
                                             <button
                                                 onClick={() => handleOverallFeedback("respect")}
                                                 className="p-2.5 bg-white hover:bg-orange-100/60 border border-orange-200 text-orange-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:shadow-xs transition-all active:scale-98 text-left"
                                             >
-                                                <span className="text-base">✨</span>
-                                                <span>深い歴史に感動した！</span>
+                                                <span className="text-xs">{t.feedbackRespect}</span>
                                             </button>
                                             <button
                                                 onClick={() => handleOverallFeedback("needs_improvement")}
                                                 className="p-2.5 bg-white hover:bg-neutral-100 border border-neutral-200 text-neutral-600 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs hover:shadow-xs transition-all active:scale-98 text-left"
                                             >
-                                                <span className="text-base">🤔</span>
-                                                <span>ちょっと難しかった</span>
+                                                <span className="text-xs">{t.feedbackDifficult}</span>
                                             </button>
                                         </div>
                                     )}

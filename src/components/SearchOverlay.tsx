@@ -4,13 +4,36 @@ import { useState, useEffect, useRef } from "react";
 import { Search, MapPin, X, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-export default function SearchOverlay() {
+interface SearchOverlayProps {
+    language?: string;
+}
+
+export default function SearchOverlay({ language = "en" }: SearchOverlayProps) {
     const [query, setQuery] = useState("");
     const [results, setResults] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
+    const [currentLanguage, setCurrentLanguage] = useState(language);
     const router = useRouter();
     const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (language) {
+            setCurrentLanguage(language);
+        } else {
+            const saved = localStorage.getItem("ai_guide_language");
+            if (saved) setCurrentLanguage(saved);
+        }
+    }, [language]);
+
+    const placeholders: Record<string, string> = {
+        en: "Where do you want to go?",
+        ja: "どこへ行きたいですか？（例: 厳島神社, 清水寺）",
+        zh: "您想去哪里探索？（例如：严岛神社、清水寺）",
+        ru: "Куда вы хотите отправиться? (напр. Ицукусима)",
+    };
+
+    const placeholderText = placeholders[currentLanguage] || placeholders.en;
 
     useEffect(() => {
         if (query.length < 2) {
@@ -21,10 +44,6 @@ export default function SearchOverlay() {
         const timeoutId = setTimeout(async () => {
             setIsLoading(true);
             try {
-                const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
-                // Note: Direct client-side calls to Places Autocomplete are possible with a proxy or the Maps JS SDK.
-                // For simplicity and security, we'll use a small proxy API or the Maps SDK if loaded.
-                // However, for this MVP, let's use a server-side route for autocomplete to avoid exposing API keys too much.
                 const response = await fetch(`/api/autocomplete?input=${encodeURIComponent(query)}`);
                 const data = await response.json();
                 setResults(data.predictions || []);
@@ -54,59 +73,71 @@ export default function SearchOverlay() {
                 className="flex items-center gap-3 px-4 py-3 bg-white border border-neutral-200 rounded-2xl shadow-sm cursor-text hover:border-blue-400 transition-colors"
             >
                 <Search className="w-5 h-5 text-neutral-400" />
-                <span className="text-neutral-400">Where do you want to go?</span>
+                <span className="text-neutral-400 text-sm">{placeholderText}</span>
             </div>
 
             {isOpen && (
-                <div className="fixed inset-0 z-[100] bg-white p-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                    <div className="flex items-center gap-4 mb-6">
-                        <div className="flex-1 flex items-center gap-3 px-4 py-3 bg-neutral-100 rounded-2xl">
-                            <Search className="w-5 h-5 text-neutral-400" />
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 p-4 flex flex-col items-center">
+                    <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden mt-12 animate-in fade-in zoom-in-95 duration-200">
+                        {/* Search Input Bar */}
+                        <div className="p-4 border-b border-neutral-100 flex items-center gap-3">
+                            <Search className="w-5 h-5 text-blue-600 flex-shrink-0" />
                             <input
                                 ref={inputRef}
                                 type="text"
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
-                                placeholder="Search for a place in Japan..."
-                                className="bg-transparent border-none outline-none w-full text-lg font-medium"
+                                placeholder={placeholderText}
+                                className="w-full text-base font-medium text-neutral-800 placeholder-neutral-400 focus:outline-none"
                             />
-                            {isLoading && <Loader2 className="w-5 h-5 animate-spin text-blue-600" />}
-                        </div>
-                        <button
-                            onClick={() => setIsOpen(false)}
-                            className="p-3 bg-neutral-100 rounded-full hover:bg-neutral-200 transition-colors"
-                        >
-                            <X className="w-6 h-6 text-neutral-600" />
-                        </button>
-                    </div>
-
-                    <div className="space-y-2 overflow-y-auto max-h-[calc(100vh-140px)]">
-                        {results.length > 0 ? (
-                            results.map((result) => (
+                            {isLoading ? (
+                                <Loader2 className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+                            ) : query ? (
                                 <button
-                                    key={result.place_id}
-                                    onClick={() => handleSelect(result.place_id)}
-                                    className="w-full flex items-start gap-4 p-4 hover:bg-neutral-50 rounded-2xl transition-colors text-left border-b border-neutral-50 last:border-none"
+                                    onClick={() => setQuery("")}
+                                    className="p-1 hover:bg-neutral-100 rounded-full text-neutral-400"
                                 >
-                                    <div className="mt-1 p-2 bg-blue-50 rounded-lg">
-                                        <MapPin className="w-5 h-5 text-blue-600" />
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-neutral-900">{result.structured_formatting.main_text}</p>
-                                        <p className="text-sm text-neutral-500">{result.structured_formatting.secondary_text}</p>
-                                    </div>
+                                    <X className="w-4 h-4" />
                                 </button>
-                            ))
-                        ) : query.length >= 2 && !isLoading ? (
-                            <p className="text-center text-neutral-400 py-12">No places found. Try another name.</p>
-                        ) : (
-                            <div className="py-12 text-center space-y-4">
-                                <div className="p-4 bg-blue-50 rounded-full w-16 h-16 mx-auto flex items-center justify-center">
-                                    <MapPin className="w-8 h-8 text-blue-600" />
+                            ) : null}
+                            <button
+                                onClick={() => setIsOpen(false)}
+                                className="px-3 py-1.5 text-xs font-bold text-neutral-600 hover:bg-neutral-100 rounded-xl"
+                            >
+                                {currentLanguage === "ja" ? "閉じる" : currentLanguage === "zh" ? "关闭" : currentLanguage === "ru" ? "Закрыть" : "Close"}
+                            </button>
+                        </div>
+
+                        {/* Search Results List */}
+                        <div className="max-h-80 overflow-y-auto p-2">
+                            {results.length > 0 ? (
+                                <div className="space-y-1">
+                                    {results.map((item) => (
+                                        <button
+                                            key={item.place_id}
+                                            onClick={() => handleSelect(item.place_id)}
+                                            className="w-full p-3 rounded-2xl flex items-start gap-3 text-left hover:bg-blue-50/60 transition-colors group"
+                                        >
+                                            <div className="p-2 bg-neutral-100 group-hover:bg-blue-100 text-neutral-500 group-hover:text-blue-600 rounded-xl mt-0.5">
+                                                <MapPin className="w-4 h-4" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-bold text-neutral-900 truncate">
+                                                    {item.structured_formatting?.main_text || item.description}
+                                                </p>
+                                                <p className="text-xs text-neutral-500 truncate">
+                                                    {item.structured_formatting?.secondary_text || ""}
+                                                </p>
+                                            </div>
+                                        </button>
+                                    ))}
                                 </div>
-                                <p className="text-neutral-500 font-medium">Discover stories behind any spot.</p>
-                            </div>
-                        )}
+                            ) : query.length >= 2 && !isLoading ? (
+                                <div className="p-8 text-center text-neutral-400 text-sm">
+                                    {currentLanguage === "ja" ? "該当する観光地が見つかりませんでした" : "No destinations found"}
+                                </div>
+                            ) : null}
+                        </div>
                     </div>
                 </div>
             )}
