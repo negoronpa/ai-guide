@@ -25,23 +25,46 @@ import {
     Award,
     ArrowRight,
     Trash2,
-    Calendar
+    Calendar,
+    Download,
+    FileText,
+    Database,
+    ChevronDown,
+    ChevronUp,
+    X,
+    ExternalLink,
+    ThumbsUp,
+    ThumbsDown,
+    User,
+    Search
 } from "lucide-react";
-import { AnalyticsSummary } from "@/lib/analyticsStore";
+import { AnalyticsSummary, FullSessionLog } from "@/lib/analyticsStore";
 
 export default function AnalyticsDashboardPage() {
     const [data, setData] = useState<AnalyticsSummary | null>(null);
+    const [sessions, setSessions] = useState<FullSessionLog[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isLiveRefreshing, setIsLiveRefreshing] = useState(true);
     const [isSimulating, setIsSimulating] = useState(false);
     const [selectedRange, setSelectedRange] = useState<"today" | "7d" | "30d" | "all">("all");
+    const [selectedSessionModal, setSelectedSessionModal] = useState<FullSessionLog | null>(null);
+    const [showSqlGuide, setShowSqlGuide] = useState(false);
+    const [searchFilter, setSearchFilter] = useState("");
 
     const fetchSummary = async (range: string = selectedRange) => {
         try {
-            const res = await fetch(`/api/analytics?range=${range}`);
-            if (res.ok) {
-                const json = await res.json();
+            const [resSummary, resSessions] = await Promise.all([
+                fetch(`/api/analytics?range=${range}`),
+                fetch(`/api/analytics?type=sessions`),
+            ]);
+
+            if (resSummary.ok) {
+                const json = await resSummary.json();
                 setData(json);
+            }
+            if (resSessions.ok) {
+                const jsonSessions = await resSessions.json();
+                setSessions(jsonSessions.sessions || []);
             }
         } catch (e) {
             console.error("Failed to fetch analytics:", e);
@@ -56,7 +79,7 @@ export default function AnalyticsDashboardPage() {
         if (isLiveRefreshing) {
             interval = setInterval(() => {
                 fetchSummary(selectedRange);
-            }, 3000);
+            }, 4000);
         }
         return () => {
             if (interval) clearInterval(interval);
@@ -79,135 +102,181 @@ export default function AnalyticsDashboardPage() {
         }
     };
 
+    const handleDownloadCsv = () => {
+        window.open("/api/analytics?format=csv", "_blank");
+    };
+
+    const handleDownloadJson = () => {
+        const jsonStr = JSON.stringify(sessions, null, 2);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `inbound_ai_guide_sessions_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
     const handleSendTestEvent = async () => {
         setIsSimulating(true);
         const spots = [
-            { id: "asakusa-temple", name: "Senso-ji Temple (浅草寺)" },
-            { id: "kinkaku-ji", name: "Kinkaku-ji (金閣寺)" },
-            { id: "national-stadium", name: "National Stadium (国立競技場)" },
+            { id: "asakusa-temple", name: "Senso-ji Temple (浅草寺)", loc: "浅草" },
+            { id: "kinkaku-ji", name: "Kinkaku-ji (金閣寺)", loc: "京都" },
         ];
         const s = spots[Math.floor(Math.random() * spots.length)];
-        const randomChapter = Math.floor(Math.random() * 8) + 3;
-        const isZero = Math.random() > 0.1;
+        const testSessionId = `test-sess-${Date.now()}`;
 
         try {
             await fetch("/api/analytics", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    sessionId: `demo-live-${Date.now()}`,
+                    type: "full_session_sync",
+                    sessionId: testSessionId,
                     spotId: s.id,
                     spotName: s.name,
-                    language: "en",
-                    eventType: isZero ? "prefetch_hit" : "chapter_played",
-                    chapterIndex: randomChapter,
-                    topicTitle: "伝統宮大工の超絶木組みと精神性",
-                    isZeroLatency: isZero,
-                    estimatedCostJpy: isZero ? 1.10 : 0.37,
+                    spotLocation: s.loc,
+                    language: "ja",
+                    userProfile: "19歳浪人生・東大文二志望。歴史と建築美に深い関心がある。",
+                    interests: ["history", "culture"],
+                    totalChapters: 3,
+                    overallFeedback: "respect",
+                    chapterFeedbacks: { "chapter-1": "good", "chapter-2": "good" },
+                    journeyTimeline: [
+                        {
+                            timestamp: new Date().toISOString(),
+                            chapterIndex: 1,
+                            selectedTopic: { title: "ハイライトガイド", prompt: "", icon: "✨" },
+                            presentedOptionsBeforeSelection: [
+                                { id: "1", icon: "🐉", title: "提灯底面の龍彫刻", prompt: "底面の彫刻の秘密" },
+                                { id: "2", icon: "🏛️", title: "宮大工の木組み", prompt: "釘を使わない建築技法" },
+                            ],
+                            script: "浅草寺は628年に創建された都内最古の寺院です。受験勉強で出会う近代建築とは異なり、1400年の祈りと町衆の美意識が息づいています。",
+                            isZeroLatencyPrefetched: false,
+                        },
+                        {
+                            timestamp: new Date().toISOString(),
+                            chapterIndex: 2,
+                            selectedTopic: { title: "提灯底面の龍彫刻", prompt: "底面の彫刻の秘密", icon: "🐉" },
+                            presentedOptionsBeforeSelection: [
+                                { id: "3", icon: "🏮", title: "丹後和紙の職人技", prompt: "手漉き和紙の耐久性" },
+                            ],
+                            script: "雷門をくぐる際、真上を見上げてください。実は底面には火災除けの水神である木彫りの龍が刻まれています。江戸の大火から町を守る切実な祈りの結晶です。",
+                            isZeroLatencyPrefetched: true,
+                        },
+                    ],
                 }),
             });
             await fetchSummary(selectedRange);
         } catch (e) {
-            console.error("Simulation error:", e);
+            console.error("Test send error:", e);
         } finally {
             setIsSimulating(false);
         }
     };
 
-    if (isLoading && !data) {
+    const filteredSessions = sessions.filter((s) => {
+        if (!searchFilter.trim()) return true;
+        const q = searchFilter.toLowerCase();
         return (
-            <div className="min-h-screen bg-[#090d16] text-white flex flex-col items-center justify-center">
-                <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-4" />
-                <p className="text-neutral-400 font-medium text-sm">Loading Cognitive Insight Analytics...</p>
-            </div>
+            s.spotName.toLowerCase().includes(q) ||
+            (s.userProfile || "").toLowerCase().includes(q) ||
+            s.sessionId.toLowerCase().includes(q) ||
+            s.language.toLowerCase().includes(q)
         );
-    }
+    });
 
-    const totalLang = Object.values(data?.languageDistribution || {}).reduce((a, b) => a + b, 0) || 1;
-    const hasData = (data?.totalSessions || 0) > 0;
+    const sqlCreateTableScript = `CREATE TABLE IF NOT EXISTS session_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    spot_id TEXT NOT NULL,
+    spot_name TEXT NOT NULL,
+    spot_location TEXT,
+    language TEXT NOT NULL,
+    user_profile TEXT,
+    interests JSONB,
+    total_chapters INTEGER DEFAULT 1,
+    overall_feedback TEXT,
+    chapter_feedbacks JSONB,
+    journey_timeline JSONB
+);
+
+-- インデックス作成（高速検索用）
+CREATE INDEX IF NOT EXISTS idx_session_logs_created_at ON session_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_logs_spot_id ON session_logs (spot_id);`;
 
     return (
-        <div className="min-h-screen bg-[#090d16] text-neutral-100 font-sans p-4 sm:p-8">
-            <div className="max-w-7xl mx-auto space-y-7">
+        <main className="min-h-screen bg-slate-900 text-slate-100 p-4 md:p-8">
+            <div className="max-w-7xl mx-auto space-y-8">
                 {/* Header */}
-                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-6 border-b border-neutral-800/80">
-                    <div className="flex items-center gap-3">
-                        <Link
-                            href="/"
-                            className="p-2.5 bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-700/80 text-neutral-300 rounded-xl transition-all shadow-sm"
-                            title="Back to App"
-                        >
-                            <ArrowLeft className="w-5 h-5" />
-                        </Link>
-                        <div>
-                            <div className="flex items-center gap-2.5">
-                                <h1 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
-                                    <GraduationCap className="w-6 h-6 text-amber-400" />
-                                    知的エンゲージメント ＆ 学びの深化分析
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-800">
+                    <div>
+                        <div className="flex items-center gap-3 mb-1">
+                            <Link
+                                href="/"
+                                className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-400 hover:text-white transition-colors"
+                            >
+                                <ArrowLeft className="w-4 h-4" />
+                            </Link>
+                            <div className="flex items-center gap-2">
+                                <Activity className="w-6 h-6 text-blue-400 animate-pulse" />
+                                <h1 className="text-2xl font-bold text-white tracking-tight">
+                                    実証実験 ＆ 認知的エンゲージメント分析ダッシュボード
                                 </h1>
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-full">
-                                    <Radio className="w-3 h-3 animate-pulse" />
-                                    LIVE INSIGHTS
-                                </span>
                             </div>
-                            <p className="text-xs text-neutral-400 mt-1">
-                                旅行者が観光資源の「歴史的起源・職人の手仕事・本質的価値」にどこまで深く共鳴したかの可視化
-                            </p>
                         </div>
+                        <p className="text-xs text-slate-400 pl-11">
+                            観光資源の価値翻訳成功率・4象限認知的足場かけ・全対話セッションログの一括エクスポート
+                        </p>
                     </div>
 
-                    {/* Actions & Filters */}
-                    <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-                        {/* Time Range Selector */}
-                        <div className="flex items-center bg-neutral-900/90 border border-neutral-700/80 rounded-xl p-1 shadow-sm">
-                            <span className="px-2 text-neutral-400 text-xs flex items-center gap-1">
-                                <Calendar className="w-3 h-3" />
-                                期間:
-                            </span>
-                            {[
-                                { key: "today", label: "今日" },
-                                { key: "7d", label: "過去7日" },
-                                { key: "30d", label: "過去30日" },
-                                { key: "all", label: "全期間" },
-                            ].map((r) => (
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* Time Range Filter */}
+                        <div className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700 text-xs font-semibold">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400 ml-2 mr-1" />
+                            {(["today", "7d", "30d", "all"] as const).map((range) => (
                                 <button
-                                    key={r.key}
-                                    onClick={() => handleRangeChange(r.key as any)}
-                                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
-                                        selectedRange === r.key
-                                            ? "bg-amber-500 text-neutral-950 shadow-xs"
-                                            : "text-neutral-400 hover:text-white"
+                                    key={range}
+                                    onClick={() => handleRangeChange(range)}
+                                    className={`px-2.5 py-1 rounded-lg transition-all ${
+                                        selectedRange === range
+                                            ? "bg-blue-600 text-white shadow-xs"
+                                            : "text-slate-400 hover:text-white"
                                     }`}
                                 >
-                                    {r.label}
+                                    {range === "today" ? "今日" : range === "7d" ? "過去7日" : range === "30d" ? "過去30日" : "全期間"}
                                 </button>
                             ))}
                         </div>
 
-                        <button
-                            onClick={handleSendTestEvent}
-                            disabled={isSimulating}
-                            className="px-3.5 py-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+                        <Link
+                            href="/analytics/logs"
+                            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all active:scale-95"
                         >
-                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                            {isSimulating ? "送信中..." : "デモ体験送信"}
-                        </button>
+                            <Search className="w-3.5 h-3.5" />
+                            <span>ログ検索・選択エクスポート画面へ</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
 
+                        {/* Live Refresh Toggle */}
                         <button
                             onClick={() => setIsLiveRefreshing(!isLiveRefreshing)}
-                            className={`px-3.5 py-2 border text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-sm ${
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
                                 isLiveRefreshing
-                                    ? "bg-neutral-900 border-neutral-700 text-neutral-300"
-                                    : "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                    : "bg-slate-800 text-slate-400 border-slate-700"
                             }`}
                         >
-                            <RefreshCw className={`w-3.5 h-3.5 ${isLiveRefreshing ? "animate-spin text-emerald-400" : ""}`} />
-                            {isLiveRefreshing ? "自動更新 (3s)" : "停止中"}
+                            <Radio className={`w-3.5 h-3.5 ${isLiveRefreshing ? "animate-pulse" : ""}`} />
+                            {isLiveRefreshing ? "LIVE更新中" : "一時停止中"}
                         </button>
 
                         <button
                             onClick={handleClearData}
-                            className="p-2 bg-neutral-900 hover:bg-red-500/20 border border-neutral-700 hover:border-red-500/40 text-neutral-400 hover:text-red-400 rounded-xl transition-all shadow-sm"
+                            className="p-2 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-xl border border-slate-700 transition-colors"
                             title="データをクリア"
                         >
                             <Trash2 className="w-4 h-4" />
@@ -215,399 +284,402 @@ export default function AnalyticsDashboardPage() {
                     </div>
                 </div>
 
-                {/* Empty State Banner if no data */}
-                {!hasData && (
-                    <div className="p-8 bg-neutral-900/60 border border-neutral-800 rounded-2xl text-center space-y-3 animate-in fade-in">
-                        <div className="w-12 h-12 rounded-2xl bg-neutral-800 flex items-center justify-center mx-auto text-neutral-400">
-                            <Activity className="w-6 h-6 text-amber-400" />
+                {/* KPI Overview Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xs">
+                        <div className="flex items-center justify-between text-slate-400 mb-2">
+                            <span className="text-xs font-bold uppercase tracking-wider">総セッション数</span>
+                            <Compass className="w-4 h-4 text-blue-400" />
                         </div>
-                        <h3 className="text-base font-bold text-white">指定された期間にまだ利用データがありません</h3>
-                        <p className="text-xs text-neutral-400 max-w-md mx-auto">
-                            ガイドアプリで音声を再生するとリアルタイムに反映されます。または右上の「**デモ体験送信**」ボタンを押してテストデータを投入できます。
-                        </p>
-                        <div className="pt-2">
+                        <div className="text-3xl font-extrabold text-white">
+                            {data?.totalSessions ?? 0}
+                            <span className="text-sm font-normal text-slate-400 ml-1">回</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">累計体験ユニークセッション</p>
+                    </div>
+
+                    <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xs">
+                        <div className="flex items-center justify-between text-slate-400 mb-2">
+                            <span className="text-xs font-bold uppercase tracking-wider">CES (知的没入指数)</span>
+                            <Award className="w-4 h-4 text-amber-400" />
+                        </div>
+                        <div className="text-3xl font-extrabold text-amber-400">
+                            {data?.cognitiveEngagementScore ?? 0}
+                            <span className="text-sm font-normal text-slate-400 ml-1">/100</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">深掘り率・学び達成・満足度総合</p>
+                    </div>
+
+                    <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xs">
+                        <div className="flex items-center justify-between text-slate-400 mb-2">
+                            <span className="text-xs font-bold uppercase tracking-wider">主観的満足度 (Feedback)</span>
+                            <HeartHandshake className="w-4 h-4 text-emerald-400" />
+                        </div>
+                        <div className="text-3xl font-extrabold text-emerald-400">
+                            {data?.subjectiveSatisfactionRate ?? 0}
+                            <span className="text-sm font-normal text-slate-400 ml-1">%</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">💡発見・✨感動のポジティブ回答率</p>
+                    </div>
+
+                    <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 shadow-xs">
+                        <div className="flex items-center justify-between text-slate-400 mb-2">
+                            <span className="text-xs font-bold uppercase tracking-wider">0ms 即時再生率</span>
+                            <Zap className="w-4 h-4 text-cyan-400" />
+                        </div>
+                        <div className="text-3xl font-extrabold text-cyan-400">
+                            {data?.zeroLatencyRate ?? 0}
+                            <span className="text-sm font-normal text-slate-400 ml-1">%</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">投機的プリフェッチ成功率</p>
+                    </div>
+                </div>
+
+                {/* ========================================================================= */}
+                {/* 📥 PoC 実証実験セッションログ管理 ＆ 一括ダウンロードセクション */}
+                {/* ========================================================================= */}
+                <div className="bg-slate-800/90 border border-blue-500/30 rounded-3xl p-6 shadow-xl space-y-6">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-700">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2.5 bg-blue-500/20 text-blue-400 rounded-2xl border border-blue-500/30">
+                                <Database className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                    実証実験 セッション対話ログ管理 (全 {sessions.length} 件)
+                                    <span className="text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full font-semibold">
+                                        クラウド永続化対応
+                                    </span>
+                                </h2>
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                    全利用者の属性、各チャプターの会話スクリプト、提示された3択、選んだトピック、評価ログを一括エクスポート
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Export Action Buttons */}
+                        <div className="flex flex-wrap items-center gap-2">
                             <Link
-                                href="/"
-                                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+                                href="/analytics/logs"
+                                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                            >
+                                <Search className="w-4 h-4" />
+                                📋 条件検索・選択DL画面を開く
+                                <ArrowRight className="w-3.5 h-3.5" />
+                            </Link>
+                            <button
+                                onClick={handleDownloadCsv}
+                                className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all active:scale-95"
+                                title="Excelで文字化けしないUTF-8 BOM付きCSVファイルをダウンロード"
+                            >
+                                <Download className="w-3.5 h-3.5" />
+                                全件CSV
+                            </button>
+                            <button
+                                onClick={handleDownloadJson}
+                                className="px-3 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-600 transition-all active:scale-95"
+                                title="完全な階層構造JSONファイルをダウンロード"
+                            >
+                                <FileText className="w-3.5 h-3.5 text-blue-400" />
+                                全件JSON
+                            </button>
+                            <button
+                                onClick={handleSendTestEvent}
+                                disabled={isSimulating}
+                                className="px-3 py-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 rounded-xl text-xs font-semibold border border-blue-500/30 transition-all flex items-center gap-1.5"
                             >
                                 <Play className="w-3.5 h-3.5" />
-                                音声ガイドを試してみる
-                            </Link>
+                                {isSimulating ? "生成中..." : "テストセッション注入"}
+                            </button>
                         </div>
                     </div>
-                )}
 
-                {/* KPI Top Cards (Cognitive Focus) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {/* Card 1: Cognitive Engagement Score (CES) */}
-                    <div className="p-5 bg-gradient-to-br from-neutral-900/95 via-neutral-900/80 to-amber-950/20 border border-amber-500/30 rounded-2xl relative overflow-hidden shadow-xl">
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-amber-300/80 tracking-wide uppercase">知的エンゲージメント指数 (CES)</span>
-                            <div className="p-2 bg-amber-500/10 rounded-xl text-amber-400">
-                                <Award className="w-4 h-4" />
-                            </div>
+                    {/* Filter & Search Bar */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="relative w-full sm:w-80">
+                            <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+                            <input
+                                type="text"
+                                value={searchFilter}
+                                onChange={(e) => setSearchFilter(e.target.value)}
+                                placeholder="スポット名・属性・IDで絞り込み..."
+                                className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                            />
                         </div>
-                        <div className="mt-3 flex items-baseline gap-2">
-                            <span className="text-3xl font-black text-white">{data?.cognitiveEngagementScore || 0}</span>
-                            <span className="text-xs text-amber-300 font-bold">/ 100 pt</span>
-                        </div>
-                        <p className="text-[11px] text-amber-400/90 font-medium mt-2 flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3 text-amber-400" />
-                            平均深掘り {data?.avgChaptersPerSession || 0} チャプター
-                        </p>
+                        <button
+                            onClick={() => setShowSqlGuide(!showSqlGuide)}
+                            className="text-xs text-slate-400 hover:text-blue-400 flex items-center gap-1 transition-colors"
+                        >
+                            <Database className="w-3.5 h-3.5" />
+                            Supabase SQLテーブル設定ガイド {showSqlGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </button>
                     </div>
 
-                    {/* Card 2: Deep Learning Attainment Rate */}
-                    <div className="p-5 bg-gradient-to-br from-neutral-900/95 via-neutral-900/80 to-purple-950/20 border border-purple-500/30 rounded-2xl relative overflow-hidden shadow-xl">
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-purple-300/80 tracking-wide uppercase">文化的学び・敬意到達率</span>
-                            <div className="p-2 bg-purple-500/10 rounded-xl text-purple-400">
-                                <BookOpen className="w-4 h-4" />
-                            </div>
-                        </div>
-                        <div className="mt-3 flex items-baseline gap-2">
-                            <span className="text-3xl font-black text-purple-300">{data?.deepLearningAttainmentRate || 0}%</span>
-                            <span className="text-xs text-neutral-400 font-medium">の利用者が達成</span>
-                        </div>
-                        <p className="text-[11px] text-purple-400 font-medium mt-2 flex items-center gap-1">
-                            単なる観光から「本質への理解」へ昇華
-                        </p>
-                    </div>
-
-                    {/* Card 3: Zero Latency Experience */}
-                    <div className="p-5 bg-gradient-to-br from-neutral-900/95 via-neutral-900/80 to-blue-950/20 border border-blue-500/30 rounded-2xl relative overflow-hidden shadow-xl">
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-blue-300/80 tracking-wide uppercase">⚡ 0秒即時再生率 (ストレスゼロ)</span>
-                            <div className="p-2 bg-blue-500/10 rounded-xl text-blue-400">
-                                <Zap className="w-4 h-4 fill-blue-400" />
-                            </div>
-                        </div>
-                        <div className="mt-3 flex items-baseline gap-2">
-                            <span className="text-3xl font-black text-blue-300">{data?.zeroLatencyRate || 0}%</span>
-                            <span className="text-xs text-neutral-400 font-medium">即時再生</span>
-                        </div>
-                        <p className="text-[11px] text-blue-400 font-medium mt-2 flex items-center gap-1">
-                            投機的プリフェッチで思考の途切れを排除
-                        </p>
-                    </div>
-
-                    {/* Card 4: Cost per Deep Session */}
-                    <div className="p-5 bg-gradient-to-br from-neutral-900/95 via-neutral-900/80 to-emerald-950/20 border border-emerald-500/30 rounded-2xl relative overflow-hidden shadow-xl">
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-emerald-300/80 tracking-wide uppercase">1スポット満喫時の原価</span>
-                            <div className="p-2 bg-emerald-500/10 rounded-xl text-emerald-400">
-                                <DollarSign className="w-4 h-4" />
-                            </div>
-                        </div>
-                        <div className="mt-3 flex items-baseline gap-2">
-                            <span className="text-3xl font-black text-emerald-300">¥{data?.avgCostPerSessionJpy || 0}</span>
-                            <span className="text-xs text-neutral-400 font-medium">/ 10チャプター</span>
-                        </div>
-                        <p className="text-[11px] text-emerald-400 font-medium mt-2 flex items-center gap-1">
-                            累計OPEX: ¥{data?.totalOpexJpy?.toLocaleString() || 0} (粗利95%+)
-                        </p>
-                    </div>
-                </div>
-
-                {/* Section 1: 4-Stage Cognitive Transformation Funnel */}
-                <div className="p-6 bg-neutral-900/90 border border-neutral-800 rounded-2xl shadow-xl space-y-5">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <Compass className="w-5 h-5 text-amber-400" />
-                                <h2 className="text-base font-bold text-white">
-                                    学びの深化ジャーニー (Cognitive Transformation Stages)
-                                </h2>
-                            </div>
-                            <p className="text-xs text-neutral-400 mt-1">
-                                旅行者がどのように感性を開かれ、表面的な観光から「歴史の起源」や「職人の精神性」へ到達したかを4段階で測定
-                            </p>
-                        </div>
-                        <span className="text-xs font-bold px-3 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-full self-start sm:self-auto">
-                            最終ステージ到達率: {data?.cognitiveStages[3]?.percentage || 0}%
-                        </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
-                        {data?.cognitiveStages.map((stg) => (
-                            <div
-                                key={stg.stage}
-                                className="p-4 bg-neutral-800/60 border border-neutral-700/70 rounded-2xl relative overflow-hidden flex flex-col justify-between space-y-3 hover:border-neutral-600 transition-all"
-                            >
-                                <div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-2xl p-1.5 bg-neutral-900/80 rounded-xl shadow-xs">
-                                            {stg.icon}
-                                        </span>
-                                        <span className="text-xs font-black text-amber-300">
-                                            {stg.percentage}% 到達
-                                        </span>
-                                    </div>
-                                    <h3 className="text-sm font-bold text-white mt-3">
-                                        {stg.title}
-                                    </h3>
-                                    <p className="text-[11px] text-neutral-400 mt-1.5 leading-relaxed">
-                                        {stg.description}
-                                    </p>
-                                </div>
-
-                                <div className="space-y-1 pt-2">
-                                    <div className="w-full h-2 bg-neutral-900 rounded-full overflow-hidden">
-                                        <div
-                                            className={`h-full bg-gradient-to-r ${stg.color} rounded-full transition-all duration-700`}
-                                            style={{ width: `${stg.percentage}%` }}
-                                        />
-                                    </div>
-                                    <span className="text-[10px] text-neutral-500 font-mono text-right block">
-                                        {stg.count} セッション
-                                    </span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Section 2: Persona Translation & Top Learned Concepts */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    {/* Left 6 cols: Persona to Heritage Translation */}
-                    <div className="lg:col-span-6 p-6 bg-neutral-900/90 border border-neutral-800 rounded-2xl shadow-xl space-y-4">
-                        <div className="flex items-center gap-2">
-                            <HeartHandshake className="w-5 h-5 text-purple-400" />
-                            <h3 className="text-base font-bold text-white">
-                                ペルソナ別「本質価値への翻訳」成功率
-                            </h3>
-                        </div>
-                        <p className="text-xs text-neutral-400">
-                            旅行者の個人的な関心（映え・アニメ・食）を入口に、文化の本質価値へと導けた確率
-                        </p>
-
-                        <div className="space-y-3 pt-2">
-                            {data?.personaTranslations.map((pt, idx) => (
-                                <div
-                                    key={idx}
-                                    className="p-3.5 bg-neutral-800/50 border border-neutral-700/60 rounded-xl space-y-2"
+                    {/* SQL Guide Accordion */}
+                    {showSqlGuide && (
+                        <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl text-xs font-mono text-slate-300 space-y-2 animate-in fade-in">
+                            <div className="flex items-center justify-between text-slate-400">
+                                <span>Supabase SQL Editor で以下を実行すると、専用テーブルが自動作成されます：</span>
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(sqlCreateTableScript);
+                                        alert("SQLをクリップボードにコピーしました！");
+                                    }}
+                                    className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px]"
                                 >
-                                    <div className="flex items-center justify-between text-xs font-bold">
-                                        <span className="text-white flex items-center gap-1.5">
-                                            <span className="w-2 h-2 rounded-full bg-purple-400" />
-                                            {pt.personaName}
-                                        </span>
-                                        <span className="text-emerald-400 font-mono text-xs">
-                                            成功率 {pt.successRate}%
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-[11px] text-neutral-400 bg-neutral-900/70 p-2 rounded-lg">
-                                        <span className="text-neutral-300 truncate max-w-[140px]">
-                                            {pt.entryInterest}
-                                        </span>
-                                        <ArrowRight className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                                        <span className="text-amber-200 font-medium truncate flex-1">
-                                            {pt.destinationInsight}
-                                        </span>
-                                    </div>
-                                </div>
-                            ))}
+                                    SQLをコピー
+                                </button>
+                            </div>
+                            <pre className="overflow-x-auto p-3 bg-slate-900 rounded-xl text-[11px] text-blue-300">
+                                {sqlCreateTableScript}
+                            </pre>
                         </div>
-                    </div>
+                    )}
 
-                    {/* Right 6 cols: Subjective Feedback & Acquired Concepts */}
-                    <div className="lg:col-span-6 space-y-6">
-                        {/* Subjective Feedback Breakdown Card */}
-                        <div className="p-6 bg-neutral-900/90 border border-neutral-800 rounded-2xl shadow-xl space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <Sparkles className="w-5 h-5 text-amber-400" />
-                                    <h3 className="text-base font-bold text-white">
-                                        旅行者の主観的評価・学びリアクション
-                                    </h3>
-                                </div>
-                                <span className="text-xs font-bold px-2.5 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full">
-                                    満足度 {data?.subjectiveSatisfactionRate || 0}%
-                                </span>
-                            </div>
-                            <p className="text-xs text-neutral-400">
-                                音声ガイド聴取後に旅行者が直接回答した「学びの実感」と各チャプター評価
-                            </p>
-
-                            <div className="grid grid-cols-3 gap-2.5 pt-1">
-                                <div className="p-3 bg-neutral-800/60 border border-amber-500/20 rounded-xl text-center">
-                                    <span className="text-xl">💡</span>
-                                    <p className="text-xs font-bold text-amber-300 mt-1">新しい発見</p>
-                                    <p className="text-lg font-black text-white mt-0.5">
-                                        {data?.feedbackBreakdown?.discovery || 0}
-                                        <span className="text-[10px] font-normal text-neutral-400"> 票</span>
-                                    </p>
-                                </div>
-                                <div className="p-3 bg-neutral-800/60 border border-orange-500/20 rounded-xl text-center">
-                                    <span className="text-xl">✨</span>
-                                    <p className="text-xs font-bold text-orange-300 mt-1">歴史に感動</p>
-                                    <p className="text-lg font-black text-white mt-0.5">
-                                        {data?.feedbackBreakdown?.respect || 0}
-                                        <span className="text-[10px] font-normal text-neutral-400"> 票</span>
-                                    </p>
-                                </div>
-                                <div className="p-3 bg-neutral-800/60 border border-neutral-700/60 rounded-xl text-center">
-                                    <span className="text-xl">🤔</span>
-                                    <p className="text-xs font-bold text-neutral-400 mt-1">要改善</p>
-                                    <p className="text-lg font-black text-neutral-300 mt-0.5">
-                                        {data?.feedbackBreakdown?.needs_improvement || 0}
-                                        <span className="text-[10px] font-normal text-neutral-400"> 票</span>
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="flex items-center justify-between pt-2 border-t border-neutral-800 text-xs text-neutral-400">
-                                <span>チャプター評価累計:</span>
-                                <div className="flex items-center gap-3">
-                                    <span className="text-emerald-400 font-bold">
-                                        👍 {data?.feedbackBreakdown?.chapterGood || 0} Good
-                                    </span>
-                                    <span className="text-neutral-500">
-                                        👎 {data?.feedbackBreakdown?.chapterBad || 0} Bad
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Top Acquired Heritage Concepts */}
-                        <div className="p-6 bg-neutral-900/90 border border-neutral-800 rounded-2xl shadow-xl space-y-4">
-                            <div className="flex items-center gap-2">
-                                <Lightbulb className="w-5 h-5 text-amber-400" />
-                                <h3 className="text-base font-bold text-white">
-                                    持ち帰られた「本質的学び・知恵」
-                                </h3>
-                            </div>
-
-                            <div className="space-y-2 pt-1">
-                                {data?.topLearnedConcepts.length === 0 ? (
-                                    <p className="text-xs text-neutral-500 italic py-4 text-center">
-                                        まだ習得されたインサイトがありません
-                                    </p>
-                                ) : (
-                                    data?.topLearnedConcepts.map((item, idx) => (
-                                        <div
-                                            key={idx}
-                                            className="p-2.5 bg-neutral-800/50 border border-neutral-700/60 rounded-xl flex items-center justify-between"
-                                        >
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <span className="w-5 h-5 rounded-md bg-amber-500/10 text-amber-400 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
-                                                    {idx + 1}
-                                                </span>
-                                                <p className="text-xs font-bold text-neutral-200 truncate">
-                                                    {item.concept}
-                                                </p>
-                                            </div>
-                                            <span className="text-[11px] font-mono text-neutral-400 flex-shrink-0 ml-2">
-                                                {item.count} 回習得
-                                            </span>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Section 3: Live Real-time Activity Log Stream */}
-                <div className="p-6 bg-neutral-900/90 border border-neutral-800 rounded-2xl shadow-xl space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <Clock className="w-5 h-5 text-blue-400" />
-                            <h3 className="text-base font-bold text-white">リアルタイム・知的対話ストリーム (Live Learning Stream)</h3>
-                        </div>
-                        <span className="text-xs text-neutral-400">最新 {data?.recentEvents.length || 0} 件</span>
-                    </div>
-
+                    {/* Sessions Table */}
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs">
+                        <table className="w-full text-left text-xs border-collapse">
                             <thead>
-                                <tr className="border-b border-neutral-800 text-neutral-400 font-bold uppercase tracking-wider">
-                                    <th className="pb-3 px-3">時刻</th>
-                                    <th className="pb-3 px-3">スポット</th>
-                                    <th className="pb-3 px-3">言語</th>
-                                    <th className="pb-3 px-3">学びステージ</th>
-                                    <th className="pb-3 px-3">習得された文化的インサイト</th>
-                                    <th className="pb-3 px-3">応答</th>
-                                    <th className="pb-3 px-3 text-right">推定原価</th>
+                                <tr className="border-b border-slate-700 text-slate-400 font-bold uppercase tracking-wider">
+                                    <th className="py-3 px-4">日時 / セッションID</th>
+                                    <th className="py-3 px-4">観光スポット</th>
+                                    <th className="py-3 px-4">旅行者属性 (ペルソナ)</th>
+                                    <th className="py-3 px-4 text-center">言語</th>
+                                    <th className="py-3 px-4 text-center">体験チャプター</th>
+                                    <th className="py-3 px-4 text-center">学び評価</th>
+                                    <th className="py-3 px-4 text-right">アクション</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-neutral-800/60 font-medium">
-                                {data?.recentEvents.length === 0 ? (
+                            <tbody className="divide-y divide-slate-800">
+                                {filteredSessions.length > 0 ? (
+                                    filteredSessions.map((s) => (
+                                        <tr key={s.sessionId} className="hover:bg-slate-800/60 transition-colors">
+                                            <td className="py-3 px-4 font-mono text-slate-400">
+                                                <div>{new Date(s.createdAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                                                <div className="text-[10px] text-slate-500 truncate max-w-[120px]">{s.sessionId}</div>
+                                            </td>
+                                            <td className="py-3 px-4 font-bold text-white">
+                                                {s.spotName}
+                                            </td>
+                                            <td className="py-3 px-4 text-slate-300 max-w-[240px] truncate" title={s.userProfile}>
+                                                {s.userProfile || <span className="text-slate-500">未設定</span>}
+                                            </td>
+                                            <td className="py-3 px-4 text-center">
+                                                <span className="px-2 py-0.5 bg-slate-700 text-slate-300 rounded font-semibold uppercase">
+                                                    {s.language}
+                                                </span>
+                                            </td>
+                                            <td className="py-3 px-4 text-center font-bold text-blue-400">
+                                                {s.totalChapters} 章
+                                            </td>
+                                            <td className="py-3 px-4 text-center">
+                                                {s.overallFeedback === "respect" ? (
+                                                    <span className="px-2 py-0.5 bg-orange-500/20 text-orange-300 rounded-full font-bold">✨ 歴史に感動</span>
+                                                ) : s.overallFeedback === "discovery" ? (
+                                                    <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded-full font-bold">💡 発見</span>
+                                                ) : s.overallFeedback === "needs_improvement" ? (
+                                                    <span className="px-2 py-0.5 bg-slate-700 text-slate-400 rounded-full">🤔 難しかった</span>
+                                                ) : (
+                                                    <span className="text-slate-500">-</span>
+                                                )}
+                                            </td>
+                                            <td className="py-3 px-4 text-right">
+                                                <button
+                                                    onClick={() => setSelectedSessionModal(s)}
+                                                    className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded-lg font-semibold transition-colors inline-flex items-center gap-1"
+                                                >
+                                                    <span>詳細ジャーニー</span>
+                                                    <ArrowRight className="w-3 h-3" />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
                                     <tr>
-                                        <td colSpan={7} className="py-8 text-center text-neutral-500 italic">
-                                            イベントログがありません
+                                        <td colSpan={7} className="py-8 text-center text-slate-500">
+                                            {searchFilter ? "検索条件に一致するセッションが見つかりませんでした。" : "まだセッションログがありません。音声ガイドを体験すると自動的にここに記録されます。"}
                                         </td>
                                     </tr>
-                                ) : (
-                                    data?.recentEvents.map((evt) => {
-                                        const timeStr = new Date(evt.timestamp).toLocaleTimeString("ja-JP", {
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                            second: "2-digit",
-                                        });
-
-                                        let stageBadge = (
-                                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded font-bold">
-                                                Stage 1 [安心]
-                                            </span>
-                                        );
-                                        if (evt.insightStage === "discovery") {
-                                            stageBadge = (
-                                                <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded font-bold">
-                                                    Stage 2 [発見]
-                                                </span>
-                                            );
-                                        } else if (evt.insightStage === "learning") {
-                                            stageBadge = (
-                                                <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded font-bold">
-                                                    Stage 3 [学び]
-                                                </span>
-                                            );
-                                        } else if (evt.insightStage === "respect") {
-                                            stageBadge = (
-                                                <span className="px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded font-bold">
-                                                    Stage 4 [敬意]
-                                                </span>
-                                            );
-                                        }
-
-                                        return (
-                                            <tr key={evt.id} className="hover:bg-neutral-800/40 transition-colors">
-                                                <td className="py-3 px-3 text-neutral-400 font-mono">{timeStr}</td>
-                                                <td className="py-3 px-3 text-white font-bold">{evt.spotName}</td>
-                                                <td className="py-3 px-3">
-                                                    <span className="px-2 py-0.5 bg-neutral-800 rounded text-[11px] text-neutral-300 font-mono uppercase">
-                                                        {evt.language}
-                                                    </span>
-                                                </td>
-                                                <td className="py-3 px-3">{stageBadge}</td>
-                                                <td className="py-3 px-3 text-neutral-200 truncate max-w-[280px]">
-                                                    {evt.learnedConcept || evt.topicTitle || "文化的概要"}
-                                                </td>
-                                                <td className="py-3 px-3">
-                                                    {evt.isZeroLatency ? (
-                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-bold rounded-md">
-                                                            <Zap className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
-                                                            0ms 即時
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-neutral-400 text-[11px]">
-                                                            通常 (2.4s)
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td className="py-3 px-3 text-right font-mono text-emerald-400">
-                                                    ¥{evt.estimatedCostJpy?.toFixed(2)}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
                                 )}
                             </tbody>
                         </table>
                     </div>
                 </div>
+
+                {/* Cognitive Scaffolding 4-Stage Distribution */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xs">
+                        <div className="flex items-center gap-2 mb-4">
+                            <GraduationCap className="w-5 h-5 text-blue-400" />
+                            <h3 className="text-base font-bold text-white">4段階の認知変容ジャーニー達成率</h3>
+                        </div>
+                        <div className="space-y-4">
+                            {(data?.cognitiveStages || []).map((stage, idx) => (
+                                <div key={idx} className="space-y-1.5">
+                                    <div className="flex items-center justify-between text-xs">
+                                        <span className="font-bold text-slate-200 flex items-center gap-1.5">
+                                            <span>{stage.icon}</span>
+                                            {stage.title}
+                                        </span>
+                                        <span className="font-mono text-slate-400">
+                                            {stage.count}件 ({stage.percentage}%)
+                                        </span>
+                                    </div>
+                                    <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden">
+                                        <div
+                                            className={`h-full ${stage.color} rounded-full transition-all duration-500`}
+                                            style={{ width: `${Math.min(100, Math.max(stage.percentage, 5))}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-slate-400">{stage.description}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xs">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Lightbulb className="w-5 h-5 text-amber-400" />
+                            <h3 className="text-base font-bold text-white">ペルソナ別・価値翻訳成功率</h3>
+                        </div>
+                        <div className="space-y-3">
+                            {(data?.personaTranslations || []).map((pt, idx) => (
+                                <div key={idx} className="p-3 bg-slate-900/70 border border-slate-800 rounded-xl space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-bold text-slate-200">{pt.personaName}</span>
+                                        <span className="text-xs font-extrabold text-emerald-400 font-mono">
+                                            成功率 {pt.successRate}%
+                                        </span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                                        <span className="text-slate-500">入口:</span>
+                                        <span>{pt.entryInterest}</span>
+                                        <span className="text-blue-400">➔</span>
+                                        <span className="text-slate-300 font-semibold">{pt.destinationInsight}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
+
+            {/* ========================================================================= */}
+            {/* 🔍 Session Detail Journey Modal */}
+            {/* ========================================================================= */}
+            {selectedSessionModal && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 p-4 flex items-center justify-center animate-in fade-in">
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+                        {/* Modal Header */}
+                        <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span className="px-2.5 py-0.5 bg-blue-600 text-white rounded-lg text-xs font-bold">
+                                        {selectedSessionModal.spotName}
+                                    </span>
+                                    <span className="text-xs text-slate-400 font-mono">
+                                        {selectedSessionModal.sessionId}
+                                    </span>
+                                </div>
+                                <h3 className="text-lg font-bold text-white mt-1">
+                                    旅行者対話ジャーニー詳細
+                                </h3>
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                    属性: {selectedSessionModal.userProfile || "(未設定)"}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setSelectedSessionModal(null)}
+                                className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Modal Body: Chapter Timelines */}
+                        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                            {(selectedSessionModal.journeyTimeline && selectedSessionModal.journeyTimeline.length > 0) ? (
+                                selectedSessionModal.journeyTimeline.map((item, idx) => (
+                                    <div key={idx} className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xl">{item.selectedTopic.icon}</span>
+                                                <span className="text-xs font-bold text-blue-400 uppercase">
+                                                    Chapter {item.chapterIndex}
+                                                </span>
+                                                <span className="text-sm font-bold text-white">
+                                                    {item.selectedTopic.title}
+                                                </span>
+                                            </div>
+                                            {item.isZeroLatencyPrefetched && (
+                                                <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-300 text-[10px] font-bold rounded-md flex items-center gap-1">
+                                                    <Zap className="w-3 h-3" /> 0ms即時再生
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Presented 3 Options Before Selection */}
+                                        {item.presentedOptionsBeforeSelection && item.presentedOptionsBeforeSelection.length > 0 && (
+                                            <div className="p-2.5 bg-slate-900 rounded-xl text-[11px] text-slate-400 space-y-1">
+                                                <p className="font-bold text-slate-500 uppercase text-[10px]">この時に提示されていた選択肢:</p>
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                                                    {item.presentedOptionsBeforeSelection.map((opt, oIdx) => (
+                                                        <div
+                                                            key={oIdx}
+                                                            className={`p-1.5 rounded-lg border text-[11px] truncate ${
+                                                                opt.title === item.selectedTopic.title
+                                                                    ? "border-blue-500 bg-blue-500/20 text-blue-200 font-bold"
+                                                                    : "border-slate-800 bg-slate-950 text-slate-400"
+                                                            }`}
+                                                        >
+                                                            {opt.icon} {opt.title} {opt.title === item.selectedTopic.title && "👈 選択"}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Generated Script */}
+                                        <div className="p-3 bg-slate-900/90 rounded-xl text-xs text-slate-200 leading-relaxed whitespace-pre-line border border-slate-800">
+                                            {item.script}
+                                        </div>
+
+                                        {/* Chapter Feedback */}
+                                        {selectedSessionModal.chapterFeedbacks?.[`chapter-${item.chapterIndex}`] && (
+                                            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                                                <span>ユーザー評価:</span>
+                                                {selectedSessionModal.chapterFeedbacks[`chapter-${item.chapterIndex}`] === "good" ? (
+                                                    <span className="text-emerald-400 font-bold flex items-center gap-1">
+                                                        <ThumbsUp className="w-3 h-3" /> Good (役に立った)
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-500 flex items-center gap-1">
+                                                        <ThumbsDown className="w-3 h-3" /> Bad
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-center text-slate-500 text-xs py-8">
+                                    このセッションには詳細なチャプター履歴がまだありません。
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-4 border-t border-slate-800 bg-slate-950/50 flex justify-end">
+                            <button
+                                onClick={() => setSelectedSessionModal(null)}
+                                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-colors"
+                            >
+                                閉じる
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </main>
     );
 }

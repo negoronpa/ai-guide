@@ -25,7 +25,8 @@ import {
     AlertCircle,
     ThumbsUp,
     ThumbsDown,
-    Check
+    Check,
+    Download
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -206,17 +207,31 @@ interface PrefetchedTopicData {
     status: "ready" | "loading" | "error";
 }
 
+interface SessionJourneyItem {
+    timestamp: string;
+    chapterIndex: number;
+    selectedTopic: {
+        title: string;
+        prompt: string;
+        icon: string;
+    };
+    presentedOptionsBeforeSelection: NextTopic[];
+    script: string;
+    isZeroLatencyPrefetched: boolean;
+}
+
 function sanitizeTopic(t: any, idx: number): NextTopic {
     if (!t) {
         return { id: `topic-${idx}-${Date.now()}`, icon: "✨", title: `トピック ${idx + 1}`, prompt: `トピック ${idx + 1}` };
     }
     if (typeof t === "string") {
-        return { id: `topic-${idx}-${Date.now()}`, icon: "✨", title: t, prompt: t };
+        const text = t.trim();
+        return { id: `topic-${idx}-${Date.now()}`, icon: "✨", title: text, prompt: text };
     }
-    const title = (t.title || t.name || t.topic || `トピック ${idx + 1}`).toString();
-    const prompt = (t.prompt || t.question || title).toString();
-    const icon = (t.icon || "✨").toString();
-    const id = (t.id || `topic-${idx}-${Date.now()}`).toString();
+    const title = (t.title || t.name || t.topic || `トピック ${idx + 1}`).toString().trim();
+    const prompt = (t.prompt || t.question || title).toString().trim();
+    const icon = (t.icon || "✨").toString().trim();
+    const id = (t.id || `topic-${idx}-${Date.now()}`).toString().trim();
     return { id, icon, title, prompt };
 }
 
@@ -237,9 +252,14 @@ function sanitizeTopicList(rawList: any[]): NextTopic[] {
 
 function cleanClientScript(text: string): string {
     let cleaned = text.trim();
-    cleaned = cleaned.replace(/^(?:\*\*|\#\#\#|\s)*(?:displayScript|spokenScript|script)(?:\*\*|\s)*:\s*["']?/i, "");
-    cleaned = cleaned.split(/(?:\n\s*(?:\*\*|\#\#\#|\s)*(?:spokenScript|nextTopics|sources)(?:\*\*|\s)*:)/i)[0];
-    cleaned = cleaned.replace(/^["']|["']$/g, "").trim();
+    cleaned = cleaned.replace(/^(?:\*\*|\#\#\#|\s)*(?:displayScript|spokenScript|script|story|title)(?:\*\*|\s)*(?::|\n|$|\s*["']?)\s*/i, "");
+    cleaned = cleaned.replace(/^["'“”`]+/, "").trim();
+    cleaned = cleaned.split(/(?:\n\s*(?:\*\*|\#\#\#|\s)*(?:spokenScript|nextTopics|sources|references)(?:\*\*|\s)*(?::|\n|$))/i)[0];
+    cleaned = cleaned.split(/(?:\n\s*(?:[\*\-\•]|\d+[\.\)])\s*(?:\*\*)?(?:Choice\s*\d+|選択肢\s*\d+|Icon:|Title:|Prompt:|[💡✨🚶📸👀🏛️🏮🌸🍡🍵⛩️🐉🔍]|(?:なぜ|どうして|この|少し|建築|歴史|スカイツリー|Why|What|How|Let)))/i)[0];
+    cleaned = cleaned.split(/(?:\n\s*(?:\*\*|\#\#\#|\s)*(?:Choice\s*\d+|選択肢\s*\d+|Icon:|Title:|Prompt:))/i)[0];
+    cleaned = cleaned.split(/(?:\n\s*[\*\-\•]\s*(?:\*\*)?[💡✨🚶📸👀🏛️🏮🌸🍡🍵⛩️🐉🔍])/i)[0];
+    cleaned = cleaned.replace(/["'“”`]+$/, "").trim();
+    cleaned = cleaned.replace(/^(?:displayScript|spokenScript|script)\s*\n+/i, "").trim();
     return cleaned;
 }
 
@@ -268,6 +288,12 @@ export default function SpotPage() {
     // Subjective Feedback States
     const [chapterFeedbacks, setChapterFeedbacks] = useState<Record<string, "good" | "bad">>({});
     const [overallFeedback, setOverallFeedback] = useState<"discovery" | "respect" | "needs_improvement" | null>(null);
+    const [overallFeedbackChapter, setOverallFeedbackChapter] = useState<number | null>(null);
+    const [overallFeedbackTimestamp, setOverallFeedbackTimestamp] = useState<string | null>(null);
+    const [initialChoice, setInitialChoice] = useState<string>("✨ おすすめハイライト (初回おまかせ)");
+
+    // PoC Research Session Journey Logs
+    const [journeyLogs, setJourneyLogs] = useState<SessionJourneyItem[]>([]);
 
     // Speculative Prefetch Cache & Controllers
     const [prefetchCache, setPrefetchCache] = useState<Record<string, PrefetchedTopicData>>({});
@@ -276,6 +302,39 @@ export default function SpotPage() {
     const timelineEndRef = useRef<HTMLDivElement>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const sessionIdRef = useRef<string>(`session-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`);
+
+    // Silent background sync of full session logs to Cloud (Supabase)
+    const syncFullSessionToCloud = (
+        updatedJourney?: SessionJourneyItem[],
+        updatedFeedbacks?: Record<string, "good" | "bad">,
+        updatedOverall?: "discovery" | "respect" | "needs_improvement" | null,
+        feedbackAtChapter?: number,
+        feedbackAtTime?: string
+    ) => {
+        if (!spot) return;
+
+        fetch("/api/analytics", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                type: "full_session_sync",
+                sessionId: sessionIdRef.current,
+                spotId: spot.id,
+                spotName: spot.name,
+                spotLocation: spot.location,
+                language: selectedLanguage,
+                userProfile: userProfile.trim(),
+                interests: selectedInterests,
+                initialChoice: initialChoice,
+                totalChapters: (updatedJourney || journeyLogs).length || chapters.length,
+                overallFeedback: updatedOverall !== undefined ? updatedOverall : overallFeedback,
+                overallFeedbackChapter: feedbackAtChapter !== undefined ? feedbackAtChapter : overallFeedbackChapter,
+                overallFeedbackTimestamp: feedbackAtTime !== undefined ? feedbackAtTime : overallFeedbackTimestamp,
+                chapterFeedbacks: updatedFeedbacks || chapterFeedbacks,
+                journeyTimeline: updatedJourney || journeyLogs,
+            }),
+        }).catch((e) => console.warn("Cloud session sync error:", e));
+    };
 
     // Ensure audio plays automatically whenever audioUrl changes
     useEffect(() => {
@@ -311,13 +370,20 @@ export default function SpotPage() {
     };
 
     const handleChapterFeedback = (chapterId: string, chapterIndex: number, chapterTitle: string, type: "good" | "bad") => {
-        setChapterFeedbacks((prev) => ({ ...prev, [chapterId]: type }));
+        const next = { ...chapterFeedbacks, [chapterId]: type };
+        setChapterFeedbacks(next);
         trackEvent("chapter_feedback", chapterIndex, chapterTitle, false, type);
+        syncFullSessionToCloud(undefined, next);
     };
 
     const handleOverallFeedback = (type: "discovery" | "respect" | "needs_improvement") => {
+        const now = new Date().toISOString();
+        const currentChapterIndex = chapters.length;
         setOverallFeedback(type);
-        trackEvent("overall_feedback", chapters.length, "スポット全体の学び", false, type);
+        setOverallFeedbackChapter(currentChapterIndex);
+        setOverallFeedbackTimestamp(now);
+        trackEvent("overall_feedback", currentChapterIndex, "スポット全体の学び", false, type);
+        syncFullSessionToCloud(undefined, undefined, type, currentChapterIndex, now);
     };
 
     useEffect(() => {
@@ -400,6 +466,13 @@ export default function SpotPage() {
                         interests: selectedInterests,
                         userProfile: userProfile.trim(),
                         currentTopic: topic.prompt,
+                        initialThemeIntent: initialChoice || selectedInterests.join(", "),
+                        locationTurnCount: chapters.length + 1,
+                        pastChapters: chapters.map((c, i) => ({
+                            index: i + 1,
+                            title: c.title,
+                            script: c.script,
+                        })),
                     }),
                 })
                     .then(async (res) => {
@@ -529,6 +602,20 @@ export default function SpotPage() {
             setChapters((prev) => [...prev, newChapter]);
             setActiveChapterId(newChapter.id);
             setAudioUrl(cachedItem.audioUrl);
+
+            // Record journey log item (Fast Path)
+            const newItem: SessionJourneyItem = {
+                timestamp: new Date().toISOString(),
+                chapterIndex: chapters.length + 1,
+                selectedTopic: { title: topicTitle, prompt: topicPrompt, icon },
+                presentedOptionsBeforeSelection: [...nextTopics],
+                script: cachedItem.scriptText,
+                isZeroLatencyPrefetched: true,
+            };
+            const updatedLogs = [...journeyLogs, newItem];
+            setJourneyLogs(updatedLogs);
+            syncFullSessionToCloud(updatedLogs);
+
             if (cachedItem.nextTopics.length > 0) {
                 setNextTopics(sanitizeTopicList(cachedItem.nextTopics));
             }
@@ -557,6 +644,13 @@ export default function SpotPage() {
                     interests: selectedInterests,
                     userProfile: userProfile.trim(),
                     currentTopic: topicPrompt || "",
+                    initialThemeIntent: initialChoice || selectedInterests.join(", "),
+                    locationTurnCount: chapters.length + 1,
+                    pastChapters: chapters.map((c, i) => ({
+                        index: i + 1,
+                        title: c.title,
+                        script: c.script,
+                    })),
                 }),
             });
 
@@ -633,6 +727,20 @@ export default function SpotPage() {
 
             setChapters((prev) => [...prev, newChapter]);
             setActiveChapterId(newChapter.id);
+
+            // Record journey log item (On-Demand Path)
+            const newItem: SessionJourneyItem = {
+                timestamp: new Date().toISOString(),
+                chapterIndex: chapters.length + 1,
+                selectedTopic: { title: topicTitle, prompt: topicPrompt, icon },
+                presentedOptionsBeforeSelection: [...nextTopics],
+                script: scriptText,
+                isZeroLatencyPrefetched: false,
+            };
+            const updatedLogs = [...journeyLogs, newItem];
+            setJourneyLogs(updatedLogs);
+            syncFullSessionToCloud(updatedLogs);
+
             setGenerationError(null);
             setLastFailedAction(null);
 

@@ -318,3 +318,264 @@ export function getAnalyticsSummary(timeRange: string = "all"): AnalyticsSummary
         recentEvents: [...events].reverse().slice(0, 20),
     };
 }
+
+// ---------------------------------------------------------------------------
+// Full Session Journey Log Storage & Supabase Integration
+// ---------------------------------------------------------------------------
+
+export interface FullSessionLog {
+    id: string;
+    sessionId: string;
+    createdAt: string;
+    spotId: string;
+    spotName: string;
+    spotLocation?: string;
+    language: string;
+    userProfile?: string;
+    interests?: string[];
+    initialChoice?: string; // 選んだ初期の選択肢 (例: "✨ おすすめハイライト", "🏛️ 歴史・建築")
+    totalChapters: number;
+    overallFeedback?: string; // 💡発見 / ✨感動 / 🤔改善
+    overallFeedbackTimestamp?: string; // フィードバック送信日時
+    overallFeedbackChapter?: number; // フィードバックが得られたチャプター番号
+    chapterFeedbacks?: Record<string, "good" | "bad">;
+    journeyTimeline?: Array<{
+        timestamp: string;
+        chapterIndex: number;
+        selectedTopic: { title: string; prompt: string; icon: string };
+        presentedOptionsBeforeSelection?: any[];
+        script: string;
+        isZeroLatencyPrefetched: boolean;
+        feedback?: "good" | "bad" | "none";
+    }>;
+}
+
+declare global {
+    var __FULL_SESSION_LOGS__: Map<string, FullSessionLog> | undefined;
+}
+
+if (!global.__FULL_SESSION_LOGS__) {
+    global.__FULL_SESSION_LOGS__ = new Map();
+}
+
+import { supabase } from "./supabase";
+
+export async function saveFullSessionLog(logData: Omit<FullSessionLog, "id" | "createdAt"> & { createdAt?: string }): Promise<FullSessionLog> {
+    const log: FullSessionLog = {
+        id: `sess-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        createdAt: logData.createdAt || new Date().toISOString(),
+        ...logData,
+    };
+
+    // Save to in-memory store
+    if (!global.__FULL_SESSION_LOGS__) {
+        global.__FULL_SESSION_LOGS__ = new Map();
+    }
+    global.__FULL_SESSION_LOGS__.set(log.sessionId, log);
+
+    // Save to Supabase if configured
+    if (supabase) {
+        try {
+            const { error } = await supabase.from("session_logs").upsert(
+                {
+                    session_id: log.sessionId,
+                    spot_id: log.spotId,
+                    spot_name: log.spotName,
+                    spot_location: log.spotLocation || "",
+                    language: log.language,
+                    user_profile: log.userProfile || "",
+                    interests: log.interests || [],
+                    initial_choice: log.initialChoice || "",
+                    total_chapters: log.totalChapters,
+                    overall_feedback: log.overallFeedback || null,
+                    overall_feedback_chapter: log.overallFeedbackChapter || null,
+                    overall_feedback_timestamp: log.overallFeedbackTimestamp || null,
+                    chapter_feedbacks: log.chapterFeedbacks || {},
+                    journey_timeline: log.journeyTimeline || [],
+                },
+                { onConflict: "session_id" }
+            );
+            if (error) {
+                console.warn("Supabase upsert warning (table might need creation):", error.message);
+            } else {
+                console.log("✅ Successfully synced session log to Supabase:", log.sessionId);
+            }
+        } catch (e) {
+            console.warn("Supabase connection error:", e);
+        }
+    }
+
+    return log;
+}
+
+export async function getAllSessionLogs(): Promise<FullSessionLog[]> {
+    // Attempt to read from Supabase first
+    if (supabase) {
+        try {
+            const { data, error } = await supabase
+                .from("session_logs")
+                .select("*")
+                .order("created_at", { ascending: false });
+
+            if (!error && data && data.length > 0) {
+                return data.map((d: any) => ({
+                    id: d.id,
+                    sessionId: d.session_id,
+                    createdAt: d.created_at,
+                    spotId: d.spot_id,
+                    spotName: d.spot_name,
+                    spotLocation: d.spot_location,
+                    language: d.language,
+                    userProfile: d.user_profile,
+                    interests: d.interests,
+                    initialChoice: d.initial_choice,
+                    totalChapters: d.total_chapters,
+                    overallFeedback: d.overall_feedback,
+                    overallFeedbackChapter: d.overall_feedback_chapter,
+                    overallFeedbackTimestamp: d.overall_feedback_timestamp,
+                    chapterFeedbacks: d.chapter_feedbacks,
+                    journeyTimeline: d.journey_timeline,
+                }));
+            }
+        } catch (e) {
+            console.warn("Supabase read error, falling back to memory:", e);
+        }
+    }
+
+    // In-memory fallback
+    if (!global.__FULL_SESSION_LOGS__) {
+        return [];
+    }
+    return Array.from(global.__FULL_SESSION_LOGS__.values()).reverse();
+}
+
+/**
+ * Generate Excel-compatible UTF-8 BOM CSV text strictly following the chronological interaction flow:
+ * 属性 ➔ 観光資源名 ➔ 選んだ初期選択肢 ➔ AI初期ガイド ➔ 提示された3択 ➔ Good/Bad ➔ 選択トピック ➔ 次のAIガイド ➔ ... ➔ フィードバックタイミング
+ */
+export function generateSessionLogsCsv(logs: FullSessionLog[]): string {
+    const BOM = "\uFEFF";
+    const headers = [
+        "セッションID",
+        "生成日時",
+        "旅行者属性 (ペルソナ)",
+        "観光資源名",
+        "所在地",
+        "言語",
+        "選んだ初期の選択肢 (初回テーマ)",
+        "ステップ (Chapter)",
+        "ユーザーが選択した選択肢 / トピック",
+        "AI音声ガイド内容 (スクリプト)",
+        "画面に提示された選択肢1",
+        "画面に提示された選択肢2",
+        "画面に提示された選択肢3",
+        "Good / Bad の入力有無",
+        "0ms即時再生 (プリフェッチ)",
+        "学び・発見フィードバック",
+        "フィードバック取得タイミング",
+    ];
+
+    const escapeCsv = (val: any) => {
+        if (val === null || val === undefined) return '""';
+        const str = String(val).replace(/"/g, '""');
+        return `"${str}"`;
+    };
+
+    const rows: string[] = [headers.map(escapeCsv).join(",")];
+
+    for (const session of logs) {
+        const timeline = session.journeyTimeline || [];
+        const initialChoiceText = session.initialChoice || (session.interests && session.interests.length > 0 ? session.interests.join(" / ") : "✨ おすすめハイライト (初回おまかせ)");
+
+        const overallFbText = session.overallFeedback === "respect"
+            ? "✨ 歴史に感動 (Respect)"
+            : session.overallFeedback === "discovery"
+            ? "💡 新しい発見 (Discovery)"
+            : session.overallFeedback === "needs_improvement"
+            ? "🤔 難しかった (Needs Improvement)"
+            : session.overallFeedback || "未入力";
+
+        const feedbackTimingText = session.overallFeedbackChapter
+            ? `Chapter ${session.overallFeedbackChapter} 再生後 (${session.overallFeedbackTimestamp ? new Date(session.overallFeedbackTimestamp).toLocaleTimeString("ja-JP") : "完了時"})`
+            : session.overallFeedback
+            ? "スポット体験後"
+            : "-";
+
+        if (timeline.length === 0) {
+            // Row without chapters
+            rows.push(
+                [
+                    session.sessionId,
+                    session.createdAt,
+                    session.userProfile || "属性未設定",
+                    session.spotName,
+                    session.spotLocation || "",
+                    session.language,
+                    initialChoiceText,
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "未入力",
+                    "-",
+                    overallFbText,
+                    feedbackTimingText,
+                ]
+                    .map(escapeCsv)
+                    .join(",")
+            );
+        } else {
+            for (let i = 0; i < timeline.length; i++) {
+                const item = timeline[i];
+                const chapterNum = item.chapterIndex || (i + 1);
+
+                // Chapter 1 is the initial guide; Chapter 2+ is the selected topic
+                const userSelectedAction = chapterNum === 1
+                    ? `【初回選択】${initialChoiceText}`
+                    : `【深掘り選択】${item.selectedTopic?.icon || ""} ${item.selectedTopic?.title || ""}`;
+
+                // Options presented in this step
+                const opt1 = item.presentedOptionsBeforeSelection?.[0] ? `${item.presentedOptionsBeforeSelection[0].icon || ""} ${item.presentedOptionsBeforeSelection[0].title}` : "-";
+                const opt2 = item.presentedOptionsBeforeSelection?.[1] ? `${item.presentedOptionsBeforeSelection[1].icon || ""} ${item.presentedOptionsBeforeSelection[1].title}` : "-";
+                const opt3 = item.presentedOptionsBeforeSelection?.[2] ? `${item.presentedOptionsBeforeSelection[2].icon || ""} ${item.presentedOptionsBeforeSelection[2].title}` : "-";
+
+                // Good / Bad reaction for this chapter
+                const chapterReaction = session.chapterFeedbacks?.[`chapter-${chapterNum}`] || item.feedback;
+                const chapterReactionText = chapterReaction === "good" ? "👍 Good (有益)" : chapterReaction === "bad" ? "👎 Bad (不評)" : "未入力";
+
+                // Feedback timing indicator on this row if it occurred at this chapter
+                const isFeedbackAtThisChapter = session.overallFeedbackChapter === chapterNum || (i === timeline.length - 1 && session.overallFeedback && !session.overallFeedbackChapter);
+
+                rows.push(
+                    [
+                        session.sessionId,
+                        item.timestamp || session.createdAt,
+                        session.userProfile || "属性未設定",
+                        session.spotName,
+                        session.spotLocation || "",
+                        session.language,
+                        initialChoiceText,
+                        `Chapter ${chapterNum}`,
+                        userSelectedAction,
+                        item.script || "",
+                        opt1,
+                        opt2,
+                        opt3,
+                        chapterReactionText,
+                        item.isZeroLatencyPrefetched ? "Yes (0ms)" : "No",
+                        isFeedbackAtThisChapter ? overallFbText : "-",
+                        isFeedbackAtThisChapter ? feedbackTimingText : "-",
+                    ]
+                        .map(escapeCsv)
+                        .join(",")
+                );
+            }
+        }
+    }
+
+    return BOM + rows.join("\r\n");
+}
+
+
